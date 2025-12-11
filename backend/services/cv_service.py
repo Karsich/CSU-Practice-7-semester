@@ -204,17 +204,33 @@ class CVService:
             x1, y1, x2, y2 = map(int, person['bbox'])
             cv2.rectangle(result_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
             cv2.putText(result_frame, f"Person {person['confidence']:.2f}", 
-                       (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                       (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         
         # Отрисовка автобусов (синий)
         for bus in detections.get('buses', []):
             x1, y1, x2, y2 = map(int, bus['bbox'])
-            cv2.rectangle(result_frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+            cv2.rectangle(result_frame, (x1, y1), (x2, y2), (255, 0, 0), 3)
             label = f"Bus {bus['confidence']:.2f}"
             if bus.get('route_number'):
                 label += f" Route: {bus['route_number']}"
             cv2.putText(result_frame, label, (x1, y1 - 10), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+        
+        # Отрисовка автомобилей (желтый)
+        for car in detections.get('cars', []):
+            x1, y1, x2, y2 = map(int, car['bbox'])
+            cv2.rectangle(result_frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
+            cv2.putText(result_frame, f"Car {car['confidence']:.2f}", 
+                       (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+        
+        # Добавляем статистику в левый верхний угол
+        stats_y = 30
+        cv2.putText(result_frame, f"People: {len(detections.get('people', []))}", 
+                   (10, stats_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        cv2.putText(result_frame, f"Buses: {len(detections.get('buses', []))}", 
+                   (10, stats_y + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+        cv2.putText(result_frame, f"Cars: {len(detections.get('cars', []))}", 
+                   (10, stats_y + 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
         
         return result_frame
 

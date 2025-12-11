@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Обработка видео в реальном времени</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            max-width: 1200px;
+            width: 100%;
+        }
+        
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        
+        .upload-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f5f5f5;
+            border-radius: 10px;
+        }
+        
+        .upload-section h2 {
+            margin-bottom: 15px;
+            color: #667eea;
+        }
+        
+        .file-input-wrapper {
+            position: relative;
+            display: inline-block;
+            width: 100%;
+        }
+        
+        input[type="file"] {
+            padding: 10px;
+            border: 2px dashed #667eea;
+            border-radius: 5px;
+            width: 100%;
+            cursor: pointer;
+        }
+        
+        .controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        button {
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background 0.3s;
+        }
+        
+        button:hover:not(:disabled) {
+            background: #5568d3;
+        }
+        
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .video-section {
+            margin-top: 30px;
+        }
+        
+        .video-container {
+            position: relative;
+            width: 100%;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        
+        #videoCanvas {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+            padding: 20px;
+            background: #f5f5f5;
+            border-radius: 10px;
+        }
+        
+        .stat-item {
+            text-align: center;
+        }
+        
+        .stat-label {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }
+        
+        .status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .status.processing {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎥 Обработка видео с детекцией объектов</h1>
+        
+        <div class="upload-section">
+            <h2>Загрузка и обработка видео</h2>
+            <div class="file-input-wrapper">
+                <input type="file" id="videoFile" accept="video/*">
+            </div>
+            <div class="controls">
+                <button id="processBtn" onclick="processVideo()">Обработать видео</button>
+                <button id="streamBtn" onclick="startStreaming()" disabled>Запустить стрим</button>
+                <button id="stopBtn" onclick="stopStreaming()" disabled>Остановить</button>
+            </div>
+            <div id="status" class="status disconnected">Отключено</div>
+        </div>
+        
+        <div class="video-section">
+            <div class="video-container">
+                <canvas id="videoCanvas"></canvas>
+            </div>
+            
+            <div class="stats">
+                <div class="stat-item">
+                    <div class="stat-label">Люди</div>
+                    <div class="stat-value" id="peopleCount">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Автобусы</div>
+                    <div class="stat-value" id="busesCount">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Автомобили</div>
+                    <div class="stat-value" id="carsCount">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">FPS</div>
+                    <div class="stat-value" id="fps">0</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000';
+        let videoElement = null;
+        let canvas = null;
+        let ctx = null;
+        let ws = null;
+        let isStreaming = false;
+        let frameCount = 0;
+        let lastTime = Date.now();
+        let fps = 0;
+
+        // Инициализация canvas
+        window.onload = () => {
+            canvas = document.getElementById('videoCanvas');
+            ctx = canvas.getContext('2d');
+        };
+
+        // Обработка видео файла
+        async function processVideo() {
+            const fileInput = document.getElementById('videoFile');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('Выберите видеофайл');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('save_output', 'true');
+
+            const processBtn = document.getElementById('processBtn');
+            processBtn.disabled = true;
+            processBtn.textContent = 'Обработка...';
+
+            try {
+                const response = await fetch(`${API_URL}/api/v1/cv/process-video`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    // Если это видео файл
+                    if (response.headers.get('content-type').includes('video')) {
+                        const blob = await response.blob();
+                        const url = URL.createObjectURL(blob);
+                        playProcessedVideo(url);
+                    } else {
+                        const data = await response.json();
+                        alert(`Видео обработано!\nКадров обработано: ${data.frames_processed}\nВсего кадров: ${data.total_frames}`);
+                        // Начать стриминг для воспроизведения
+                        startVideoStreaming(file);
+                    }
+                } else {
+                    const error = await response.text();
+                    alert(`Ошибка: ${error}`);
+                }
+            } catch (error) {
+                console.error('Ошибка:', error);
+                alert('Ошибка обработки видео');
+            } finally {
+                processBtn.disabled = false;
+                processBtn.textContent = 'Обработать видео';
+            }
+        }
+
+        // Воспроизведение обработанного видео
+        function playProcessedVideo(url) {
+            const video = document.createElement('video');
+            video.src = url;
+            video.controls = true;
+            video.style.width = '100%';
+            
+            const container = document.querySelector('.video-container');
+            container.innerHTML = '';
+            container.appendChild(video);
+        }
+
+        // Запуск стриминга видео
+        function startVideoStreaming(videoFile) {
+            videoElement = document.createElement('video');
+            videoElement.src = URL.createObjectURL(videoFile);
+            videoElement.muted = true;
+            
+            videoElement.onloadedmetadata = () => {
+                canvas.width = videoElement.videoWidth;
+                canvas.height = videoElement.videoHeight;
+                
+                videoElement.play();
+                startStreaming();
+            };
+        }
+
+        // Запуск стриминга через WebSocket
+        function startStreaming() {
+            if (isStreaming) return;
+
+            const fileInput = document.getElementById('videoFile');
+            const file = fileInput.files[0];
+            
+            if (!file && !videoElement) {
+                alert('Выберите видеофайл');
+                return;
+            }
+
+            if (!videoElement) {
+                startVideoStreaming(file);
+                return;
+            }
+
+            // Подключаемся к WebSocket
+            ws = new WebSocket(`ws://localhost:8000/api/v1/cv/process-video-stream`);
+            
+            ws.onopen = () => {
+                isStreaming = true;
+                updateStatus('connected', 'Подключено');
+                document.getElementById('streamBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = false;
+                
+                // Начинаем отправлять кадры
+                sendFrames();
+            };
+
+            ws.onmessage = async (event) => {
+                if (event.data instanceof Blob) {
+                    // Это изображение
+                    const img = new Image();
+                    img.onload = () => {
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        
+                        // Подсчет FPS
+                        frameCount++;
+                        const now = Date.now();
+                        if (now - lastTime >= 1000) {
+                            fps = frameCount;
+                            frameCount = 0;
+                            lastTime = now;
+                            document.getElementById('fps').textContent = fps;
+                        }
+                    };
+                    img.src = URL.createObjectURL(event.data);
+                } else {
+                    // Это JSON с метаданными
+                    try {
+                        const data = JSON.parse(event.data);
+                        document.getElementById('peopleCount').textContent = data.people_count || 0;
+                        document.getElementById('busesCount').textContent = data.buses_count || 0;
+                        document.getElementById('carsCount').textContent = data.cars_count || 0;
+                    } catch (e) {
+                        // Игнорируем ошибки парсинга
+                    }
+                }
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                updateStatus('disconnected', 'Ошибка подключения');
+            };
+
+            ws.onclose = () => {
+                isStreaming = false;
+                updateStatus('disconnected', 'Отключено');
+                document.getElementById('streamBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+            };
+        }
+
+        // Отправка кадров на сервер
+        async function sendFrames() {
+            if (!isStreaming || !videoElement || !ws || ws.readyState !== WebSocket.OPEN) {
+                return;
+            }
+
+            // Рисуем текущий кадр на canvas
+            ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+            
+            // Конвертируем canvas в blob
+            canvas.toBlob((blob) => {
+                if (blob && ws.readyState === WebSocket.OPEN) {
+                    blob.arrayBuffer().then(buffer => {
+                        ws.send(buffer);
+                    });
+                }
+            }, 'image/jpeg', 0.9);
+
+            // Если видео не закончилось, продолжаем
+            if (!videoElement.paused && !videoElement.ended) {
+                setTimeout(sendFrames, 100); // Отправляем примерно каждые 100мс (10 FPS)
+            } else if (videoElement.ended) {
+                stopStreaming();
+            }
+        }
+
+        // Остановка стриминга
+        function stopStreaming() {
+            if (ws) {
+                ws.send('stop');
+                ws.close();
+                ws = null;
+            }
+            
+            if (videoElement) {
+                videoElement.pause();
+            }
+            
+            isStreaming = false;
+            updateStatus('disconnected', 'Остановлено');
+            document.getElementById('streamBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+        }
+
+        // Обновление статуса
+        function updateStatus(status, message) {
+            const statusEl = document.getElementById('status');
+            statusEl.className = `status ${status}`;
+            statusEl.textContent = message;
+        }
+    </script>
+</body>
+</html>
+
