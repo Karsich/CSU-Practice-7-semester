@@ -3,7 +3,7 @@
 """
 import cv2
 import asyncio
-from typing import Optional, Callable, Dict
+from typing import Optional, Callable, Dict, List
 from datetime import datetime
 import numpy as np
 
@@ -22,7 +22,7 @@ class VideoProcessor:
     async def process_stream(
         self,
         stream_url: str,
-        stop_zone: Optional[tuple] = None,
+        stop_zone_coords: Optional[List[List[float]]] = None,
         callback: Optional[Callable] = None
     ):
         """
@@ -30,7 +30,7 @@ class VideoProcessor:
         
         Args:
             stream_url: URL видеопотока или путь к файлу
-            stop_zone: координаты зоны остановки (x1, y1, x2, y2)
+            stop_zone_coords: координаты зоны остановки [[x1,y1], [x2,y2], ...]
             callback: функция обратного вызова для обработки результатов
         """
         cap = cv2.VideoCapture(stream_url)
@@ -54,7 +54,7 @@ class VideoProcessor:
                     continue
                 
                 # Обработка кадра
-                results = cv_service.process_video_frame(frame, stop_zone)
+                results = cv_service.process_video_frame(frame, stop_zone_coords)
                 
                 if callback:
                     await callback(results)
@@ -67,18 +67,18 @@ class VideoProcessor:
             cap.release()
             self.is_processing = False
     
-    def process_frame(self, frame: np.ndarray, stop_zone: Optional[tuple] = None) -> Dict:
+    def process_frame(self, frame: np.ndarray, stop_zone_coords: Optional[List[List[float]]] = None) -> Dict:
         """
         Синхронная обработка одного кадра
         
         Args:
             frame: кадр изображения
-            stop_zone: координаты зоны остановки
+            stop_zone_coords: координаты зоны остановки [[x1,y1], [x2,y2], ...]
             
         Returns:
             Результаты обработки
         """
-        return cv_service.process_video_frame(frame, stop_zone)
+        return cv_service.process_video_frame(frame, stop_zone_coords)
     
     def stop_processing(self):
         """Остановка обработки видеопотока"""

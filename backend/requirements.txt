@@ -20,6 +20,8 @@ torch==2.1.1
 torchvision==0.16.1
 numpy==1.24.3
 Pillow==10.1.0
+easyocr==1.7.0
+pytesseract==0.3.10
 
 # Time series forecasting
 prophet==1.1.5

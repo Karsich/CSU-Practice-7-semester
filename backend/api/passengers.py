@@ -9,101 +9,85 @@ from sqlalchemy import func, and_
 
 from core.database import get_db
 from core import schemas
-from core.models import Route, Stop, LoadData, Bus
+from core.models import Stop, LoadData, BusDetection
 from services.forecast_service import forecast_service
 
 router = APIRouter()
 
 
-@router.get("/current-load/{route_id}", response_model=schemas.CurrentLoadResponse)
+@router.get("/current-load/{stop_id}", response_model=schemas.CurrentLoadResponse)
 async def get_current_load(
-    route_id: int,
-    stop_id: Optional[int] = None,
+    stop_id: int,
     db: Session = Depends(get_db)
 ):
-    """Получение текущей загруженности маршрута"""
-    route = db.query(Route).filter(Route.id == route_id).first()
-    if not route:
-        raise HTTPException(status_code=404, detail="Маршрут не найден")
+    """Получение текущей загруженности остановки"""
+    stop = db.query(Stop).filter(Stop.id == stop_id).first()
+    if not stop:
+        raise HTTPException(status_code=404, detail="Остановка не найдена")
     
     # Получение последних данных о загруженности
-    query = db.query(LoadData).filter(
+    latest_data = db.query(LoadData).filter(
         and_(
-            LoadData.route_id == route_id,
+            LoadData.stop_id == stop_id,
             LoadData.timestamp >= datetime.now() - timedelta(minutes=10)
         )
-    )
-    
-    if stop_id:
-        query = query.filter(LoadData.stop_id == stop_id)
-    
-    latest_data = query.order_by(LoadData.timestamp.desc()).first()
+    ).order_by(LoadData.timestamp.desc()).first()
     
     if not latest_data:
         # Если нет данных, возвращаем пустое значение
-        load_percentage = 0.0
         people_count = 0
+        buses_detected = 0
     else:
-        load_percentage = latest_data.load_percentage
         people_count = latest_data.people_count
+        buses_detected = latest_data.buses_detected
     
-    # Определение статуса
-    load_status = forecast_service.get_current_load_status(load_percentage)
+    # Определение статуса загруженности
+    if people_count == 0:
+        load_status = "free"
+    elif people_count < 10:
+        load_status = "medium"
+    else:
+        load_status = "crowded"
     
-    # Получение информации об остановке
-    stop_name = "Общая"
-    if stop_id:
-        stop = db.query(Stop).filter(Stop.id == stop_id).first()
-        if stop:
-            stop_name = stop.name
-    
-    # Получение информации о ближайших автобусах
-    buses = db.query(Bus).filter(
+    # Получение информации о недавно обнаруженных автобусах
+    recent_buses = db.query(BusDetection).filter(
         and_(
-            Bus.route_id == route_id,
-            Bus.is_active == True,
-            Bus.last_seen >= datetime.now() - timedelta(minutes=30)
+            BusDetection.stop_id == stop_id,
+            BusDetection.detected_at >= datetime.now() - timedelta(minutes=30)
         )
-    ).all()
+    ).order_by(BusDetection.detected_at.desc()).limit(5).all()
     
-    next_buses = []
-    for bus in buses[:5]:  # Ближайшие 5 автобусов
-        next_buses.append({
-            'id': bus.id,
-            'vehicle_number': bus.vehicle_number,
-            'current_load': bus.current_load,
-            'load_percentage': (bus.current_load / bus.max_capacity) * 100 if bus.max_capacity > 0 else 0,
-            'load_status': forecast_service.get_current_load_status(
-                (bus.current_load / bus.max_capacity) * 100 if bus.max_capacity > 0 else 0
-            )
+    recent_buses_list = []
+    for bus_det in recent_buses:
+        recent_buses_list.append({
+            'bus_number': bus_det.bus_number,
+            'detected_at': bus_det.detected_at.isoformat(),
+            'confidence': bus_det.confidence
         })
     
     return schemas.CurrentLoadResponse(
-        route_id=route_id,
-        route_number=route.number,
-        stop_id=stop_id or 0,
-        stop_name=stop_name,
-        current_load=people_count,
-        load_percentage=load_percentage,
+        stop_id=stop_id,
+        stop_name=stop.name,
+        people_count=people_count,
+        buses_detected=buses_detected,
         load_status=load_status,
         updated_at=latest_data.timestamp if latest_data else datetime.now(),
-        next_buses=next_buses
+        recent_buses=recent_buses_list
     )
 
 
-@router.get("/forecast/{route_id}", response_model=List[schemas.ForecastResponse])
+@router.get("/forecast/{stop_id}", response_model=List[schemas.ForecastResponse])
 async def get_forecast(
-    route_id: int,
-    stop_id: Optional[int] = None,
+    stop_id: int,
     hours: int = 24,
     db: Session = Depends(get_db)
 ):
-    """Получение прогноза загруженности"""
-    route = db.query(Route).filter(Route.id == route_id).first()
-    if not route:
-        raise HTTPException(status_code=404, detail="Маршрут не найден")
+    """Получение прогноза загруженности остановки"""
+    stop = db.query(Stop).filter(Stop.id == stop_id).first()
+    if not stop:
+        raise HTTPException(status_code=404, detail="Остановка не найдена")
     
-    forecast_result = forecast_service.forecast_load(db, route_id, stop_id, hours)
+    forecast_result = forecast_service.forecast_load(db, None, stop_id, hours)
     
     if forecast_result.get('error'):
         raise HTTPException(status_code=400, detail=forecast_result['error'])
@@ -111,10 +95,9 @@ async def get_forecast(
     forecasts = []
     for item in forecast_result['forecast']:
         forecasts.append(schemas.ForecastResponse(
-            route_id=route_id,
             stop_id=stop_id,
             forecast_time=item['timestamp'],
-            predicted_load=item['predicted_load'],
+            predicted_people_count=item['predicted_load'],
             confidence_interval_lower=item.get('lower_bound'),
             confidence_interval_upper=item.get('upper_bound')
         ))
@@ -122,11 +105,9 @@ async def get_forecast(
     return forecasts
 
 
-@router.get("/routes/{route_id}/stops", response_model=List[schemas.Stop])
-async def get_route_stops(route_id: int, db: Session = Depends(get_db)):
-    """Получение списка остановок маршрута"""
-    stops = db.query(Stop).filter(
-        and_(Stop.route_id == route_id, Stop.is_active == True)
-    ).order_by(Stop.id).all()
+@router.get("/stops", response_model=List[schemas.Stop])
+async def get_stops(db: Session = Depends(get_db)):
+    """Получение списка всех остановок"""
+    stops = db.query(Stop).filter(Stop.is_active == True).all()
     return stops
 

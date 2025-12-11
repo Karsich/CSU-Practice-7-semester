@@ -1,5 +1,5 @@
 """
-API для администраторов (управление маршрутами, остановками)
+API для администраторов (управление остановками)
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -7,29 +7,14 @@ from typing import List
 
 from core.database import get_db
 from core import schemas
-from core.models import Route, Stop, Bus
+from core.models import Stop
 
 router = APIRouter()
-
-
-@router.post("/routes", response_model=schemas.Route)
-async def create_route(route: schemas.RouteCreate, db: Session = Depends(get_db)):
-    """Создание нового маршрута"""
-    db_route = Route(**route.dict())
-    db.add(db_route)
-    db.commit()
-    db.refresh(db_route)
-    return db_route
 
 
 @router.post("/stops", response_model=schemas.Stop)
 async def create_stop(stop: schemas.StopCreate, db: Session = Depends(get_db)):
     """Создание новой остановки"""
-    # Проверка существования маршрута
-    route = db.query(Route).filter(Route.id == stop.route_id).first()
-    if not route:
-        raise HTTPException(status_code=404, detail="Маршрут не найден")
-    
     db_stop = Stop(**stop.dict())
     db.add(db_stop)
     db.commit()
@@ -37,17 +22,37 @@ async def create_stop(stop: schemas.StopCreate, db: Session = Depends(get_db)):
     return db_stop
 
 
-@router.post("/buses", response_model=schemas.Bus)
-async def create_bus(bus: schemas.BusCreate, db: Session = Depends(get_db)):
-    """Добавление нового автобуса"""
-    # Проверка существования маршрута
-    route = db.query(Route).filter(Route.id == bus.route_id).first()
-    if not route:
-        raise HTTPException(status_code=404, detail="Маршрут не найден")
+@router.get("/stops", response_model=List[schemas.Stop])
+async def get_stops(db: Session = Depends(get_db)):
+    """Получение списка всех остановок"""
+    stops = db.query(Stop).filter(Stop.is_active == True).all()
+    return stops
+
+
+@router.get("/stops/{stop_id}", response_model=schemas.Stop)
+async def get_stop(stop_id: int, db: Session = Depends(get_db)):
+    """Получение информации об остановке"""
+    stop = db.query(Stop).filter(Stop.id == stop_id).first()
+    if not stop:
+        raise HTTPException(status_code=404, detail="Остановка не найдена")
+    return stop
+
+
+@router.put("/stops/{stop_id}", response_model=schemas.Stop)
+async def update_stop(
+    stop_id: int,
+    stop_update: schemas.StopBase,
+    db: Session = Depends(get_db)
+):
+    """Обновление информации об остановке"""
+    stop = db.query(Stop).filter(Stop.id == stop_id).first()
+    if not stop:
+        raise HTTPException(status_code=404, detail="Остановка не найдена")
     
-    db_bus = Bus(**bus.dict())
-    db.add(db_bus)
+    for key, value in stop_update.dict(exclude_unset=True).items():
+        setattr(stop, key, value)
+    
     db.commit()
-    db.refresh(db_bus)
-    return db_bus
+    db.refresh(stop)
+    return stop
 

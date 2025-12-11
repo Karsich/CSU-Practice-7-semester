@@ -9,7 +9,7 @@ from prophet import Prophet
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 
-from core.models import LoadData, Route, Stop
+from core.models import LoadData, Stop
 
 
 class ForecastService:
@@ -18,16 +18,15 @@ class ForecastService:
     def __init__(self):
         self.prophet_models = {}  # Кеш моделей для разных маршрутов
     
-    def prepare_time_series_data(self, db: Session, route_id: int, 
-                                 stop_id: Optional[int] = None, 
+    def prepare_time_series_data(self, db: Session, 
+                                 stop_id: int, 
                                  days: int = 30) -> pd.DataFrame:
         """
         Подготовка данных временного ряда для прогнозирования
         
         Args:
             db: сессия БД
-            route_id: ID маршрута
-            stop_id: ID остановки (опционально)
+            stop_id: ID остановки
             days: количество дней истории для анализа
             
         Returns:
@@ -38,14 +37,11 @@ class ForecastService:
         
         query = db.query(LoadData).filter(
             and_(
-                LoadData.route_id == route_id,
+                LoadData.stop_id == stop_id,
                 LoadData.timestamp >= start_date,
                 LoadData.timestamp <= end_date
             )
         )
-        
-        if stop_id:
-            query = query.filter(LoadData.stop_id == stop_id)
         
         # Агрегация по часам
         load_data = query.order_by(LoadData.timestamp).all()
@@ -58,7 +54,7 @@ class ForecastService:
         for record in load_data:
             data.append({
                 'ds': record.timestamp,
-                'y': record.load_percentage
+                'y': record.people_count  # Используем количество людей вместо процента
             })
         
         df = pd.DataFrame(data)
@@ -110,14 +106,15 @@ class ForecastService:
         for _, row in forecast_data.iterrows():
             result['forecast'].append({
                 'timestamp': row['ds'],
-                'predicted_load': max(0, min(100, row['yhat'])),  # Ограничение 0-100%
-                'lower_bound': max(0, min(100, row['yhat_lower'])),
-                'upper_bound': max(0, min(100, row['yhat_upper']))
+                'predicted_load': max(0, row['yhat']),  # Количество людей (может быть больше 100)
+                'lower_bound': max(0, row['yhat_lower']),
+                'upper_bound': max(0, row['yhat_upper'])
             })
         
         return result
     
-    def forecast_load(self, db: Session, route_id: int, 
+    def forecast_load(self, db: Session, 
+                     route_id: Optional[int] = None,  # Оставлено для обратной совместимости
                      stop_id: Optional[int] = None,
                      hours: int = 24) -> Dict:
         """
@@ -125,15 +122,21 @@ class ForecastService:
         
         Args:
             db: сессия БД
-            route_id: ID маршрута
-            stop_id: ID остановки (опционально)
+            route_id: ID маршрута (не используется, оставлено для обратной совместимости)
+            stop_id: ID остановки
             hours: количество часов для прогноза
             
         Returns:
             Словарь с прогнозами
         """
+        if not stop_id:
+            return {
+                'forecast': [],
+                'error': 'Необходимо указать stop_id'
+            }
+        
         # Подготовка данных
-        df = self.prepare_time_series_data(db, route_id, stop_id)
+        df = self.prepare_time_series_data(db, stop_id)
         
         if df.empty:
             return {

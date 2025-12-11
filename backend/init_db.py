@@ -3,7 +3,7 @@
 """
 from sqlalchemy.orm import Session
 from core.database import engine, Base, SessionLocal
-from core.models import Route, Stop, Bus
+from core.models import Stop
 from datetime import datetime
 
 
@@ -19,84 +19,59 @@ def create_test_data():
     
     try:
         # Проверка существования данных
-        existing_routes = db.query(Route).count()
-        if existing_routes > 0:
+        existing_stops = db.query(Stop).count()
+        if existing_stops > 0:
             print("Тестовые данные уже существуют")
             return
         
-        # Создание маршрутов
-        routes_data = [
-            {"number": "1", "name": "Маршрут №1", "description": "Тестовый маршрут 1"},
-            {"number": "2", "name": "Маршрут №2", "description": "Тестовый маршрут 2"},
-            {"number": "3", "name": "Маршрут №3", "description": "Тестовый маршрут 3"},
+        # Создание остановок с привязкой к камерам
+        stops_data = [
+            {
+                "name": "250-летия Челябинска - Академика Макеева",
+                "latitude": 55.1644,
+                "longitude": 61.4368,
+                "camera_id": "camera1",
+                "camera_url": "rtsp://cdn.cams.is74.ru:8554?uuid=ab7346d3-b64c-4754-a02a-96f01fd2a2fa&quality=main",
+                "stop_zone_coords": [[100, 200], [500, 200], [500, 600], [100, 600]],  # Пример координат зоны остановки
+                "is_active": True,
+            },
+            {
+                "name": "250-летия Челябинска - Салавата Юлаева",
+                "latitude": 55.1544,
+                "longitude": 61.4468,
+                "camera_id": "camera2",
+                "camera_url": "rtsp://cdn.cams.is74.ru:8554?uuid=0cff55c4-ba25-4976-bd39-276fcbdb054a&quality=main",
+                "stop_zone_coords": [[150, 250], [550, 250], [550, 650], [150, 650]],
+                "is_active": True,
+            },
+            {
+                "name": "Академика Королёва - Университетская Набережная",
+                "latitude": 55.1744,
+                "longitude": 61.4268,
+                "camera_id": "camera3",
+                "camera_url": "rtsp://cdn.cams.is74.ru:8554?uuid=57164ea3-c4fa-45ae-b315-79544770eb36&quality=main",
+                "stop_zone_coords": [[200, 300], [600, 300], [600, 700], [200, 700]],
+                "is_active": True,
+            },
         ]
         
-        created_routes = []
-        for route_data in routes_data:
-            route = Route(**route_data)
-            db.add(route)
-            created_routes.append(route)
-        
-        db.commit()
-        
-        # Создание остановок для первого маршрута
-        if created_routes:
-            route1 = created_routes[0]
-            stops_data = [
-                {
-                    "route_id": route1.id,
-                    "name": "Центральная остановка",
-                    "latitude": 55.1644,
-                    "longitude": 61.4368,
-                    "camera_url": None,
-                },
-                {
-                    "route_id": route1.id,
-                    "name": "Остановка у вокзала",
-                    "latitude": 55.1544,
-                    "longitude": 61.4468,
-                    "camera_url": None,
-                },
-                {
-                    "route_id": route1.id,
-                    "name": "Конечная остановка",
-                    "latitude": 55.1744,
-                    "longitude": 61.4268,
-                    "camera_url": None,
-                },
-            ]
-            
-            for stop_data in stops_data:
-                stop = Stop(**stop_data)
-                db.add(stop)
-            
-            # Создание тестовых автобусов
-            buses_data = [
-                {
-                    "route_id": route1.id,
-                    "vehicle_number": "А123",
-                    "license_plate": "М123АБ 74",
-                    "max_capacity": 50,
-                },
-                {
-                    "route_id": route1.id,
-                    "vehicle_number": "А124",
-                    "license_plate": "М124АБ 74",
-                    "max_capacity": 50,
-                },
-            ]
-            
-            for bus_data in buses_data:
-                bus = Bus(**bus_data)
-                db.add(bus)
+        created_stops = []
+        for stop_data in stops_data:
+            stop = Stop(**stop_data)
+            db.add(stop)
+            created_stops.append(stop)
         
         db.commit()
         print("Тестовые данные созданы успешно!")
-        print(f"Создано маршрутов: {len(created_routes)}")
+        print(f"Создано остановок: {len(created_stops)}")
+        for stop in created_stops:
+            print(f"  - {stop.name} (ID: {stop.id}, Камера: {stop.camera_id})")
         
     except Exception as e:
         db.rollback()
         print(f"Ошибка при создании тестовых данных: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         db.close()
 

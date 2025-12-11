@@ -6,32 +6,16 @@ from typing import Optional, List
 from datetime import datetime
 
 
-class RouteBase(BaseModel):
-    number: str
-    name: Optional[str] = None
-    description: Optional[str] = None
-    is_active: bool = True
-
-
-class RouteCreate(RouteBase):
-    pass
-
-
-class Route(RouteBase):
-    id: int
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
+# Схемы Route удалены - остановки больше не привязаны к маршрутам
 
 
 class StopBase(BaseModel):
-    route_id: int
     name: str
     latitude: float = Field(..., ge=-90, le=90)
     longitude: float = Field(..., ge=-180, le=180)
-    camera_url: Optional[str] = None
+    camera_id: Optional[str] = None  # ID камеры (camera1, camera2, camera3)
+    camera_url: Optional[str] = None  # URL видеопотока с камеры (опционально)
+    stop_zone_coords: Optional[List[List[float]]] = None  # Координаты зоны остановки на кадре
     is_active: bool = True
 
 
@@ -47,37 +31,32 @@ class Stop(StopBase):
         from_attributes = True
 
 
-class BusBase(BaseModel):
-    route_id: int
-    vehicle_number: str
-    license_plate: Optional[str] = None
-    max_capacity: int = 50
-    is_active: bool = True
+class BusDetectionBase(BaseModel):
+    stop_id: int
+    bus_number: Optional[str] = None  # Распознанный номер автобуса
+    confidence: Optional[float] = None
+    bus_bbox: Optional[List[float]] = None  # [x1, y1, x2, y2]
+    detection_data: Optional[dict] = None
 
 
-class BusCreate(BusBase):
+class BusDetectionCreate(BusDetectionBase):
     pass
 
 
-class Bus(BusBase):
+class BusDetection(BusDetectionBase):
     id: int
-    current_load: int
-    last_seen: Optional[datetime] = None
-    created_at: datetime
+    detected_at: datetime
     
     class Config:
         from_attributes = True
 
 
 class LoadDataBase(BaseModel):
-    route_id: int
     stop_id: int
     timestamp: datetime
     people_count: int = 0
-    boarding_count: int = 0
-    alighting_count: int = 0
-    bus_load: int = 0
-    load_percentage: float = 0.0
+    buses_detected: int = 0
+    detection_data: Optional[dict] = None
 
 
 class LoadDataCreate(LoadDataBase):
@@ -92,22 +71,19 @@ class LoadData(LoadDataBase):
 
 
 class CurrentLoadResponse(BaseModel):
-    route_id: int
-    route_number: str
     stop_id: int
     stop_name: str
-    current_load: int
-    load_percentage: float
-    load_status: str  # "free", "medium", "full"
+    people_count: int
+    buses_detected: int
+    load_status: str  # "free", "medium", "crowded"
     updated_at: datetime
-    next_buses: List[dict] = []
+    recent_buses: List[dict] = []  # Недавно обнаруженные автобусы
 
 
 class ForecastResponse(BaseModel):
-    route_id: int
-    stop_id: Optional[int] = None
+    stop_id: int
     forecast_time: datetime
-    predicted_load: float
+    predicted_people_count: float
     confidence_interval_lower: Optional[float] = None
     confidence_interval_upper: Optional[float] = None
 

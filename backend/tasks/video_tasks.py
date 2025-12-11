@@ -10,18 +10,17 @@ from tasks.celery_app import celery_app
 from services.video_processor import video_processor
 from services.cv_service import cv_service
 from core.database import SessionLocal
-from core.models import LoadData, Stop, Bus, BusDetection, Route
+from core.models import LoadData, Stop, BusDetection
 
 
 @celery_app.task(name="process_video_frame")
-def process_video_frame_task(frame_data: bytes, stop_id: int, route_id: int):
+def process_video_frame_task(frame_data: bytes, stop_id: int):
     """
     Обработка одного кадра видеопотока
     
     Args:
         frame_data: данные кадра в формате bytes
         stop_id: ID остановки
-        route_id: ID маршрута
     """
     db = SessionLocal()
     
@@ -38,55 +37,43 @@ def process_video_frame_task(frame_data: bytes, stop_id: int, route_id: int):
         if not stop:
             return {"error": "Stop not found"}
         
-        # Обработка кадра
-        results = video_processor.process_frame(frame)
+        # Получение координат зоны остановки
+        stop_zone_coords = stop.stop_zone_coords if stop.stop_zone_coords else None
         
-        # Сохранение данных о количестве людей
+        # Обработка кадра
+        results = video_processor.process_frame(frame, stop_zone_coords)
+        
+        # Сохранение данных о количестве людей и автобусах
         load_data = LoadData(
-            route_id=route_id,
             stop_id=stop_id,
             timestamp=datetime.now(),
             people_count=results['people_count'],
-            boarding_count=0,  # Трекинг потребует обработки нескольких кадров
-            alighting_count=0,
-            load_percentage=min(100, (results['people_count'] / 30) * 100)  # Предполагаем макс. 30 человек
+            buses_detected=results.get('buses_count', 0),
+            detection_data={
+                'people_detections': results.get('people_detections', []),
+                'stop_zone': results.get('stop_zone')
+            }
         )
         db.add(load_data)
         
-        # Обработка автобусов
-        for bus_info in results['buses']:
-            # Поиск автобуса по номеру маршрута
-            if bus_info.get('route_number'):
-                route = db.query(Route).filter(
-                    Route.number == bus_info['route_number']
-                ).first()
-                
-                if route:
-                    bus = db.query(Bus).filter(
-                        Bus.route_id == route.id
-                    ).first()
-                    
-                    if bus:
-                        # Обновление последнего времени обнаружения
-                        bus.last_seen = datetime.now()
-                        
-                        # Сохранение детекции
-                        detection = BusDetection(
-                            bus_id=bus.id,
-                            stop_id=stop_id,
-                            detected_at=datetime.now(),
-                            confidence=bus_info['confidence'],
-                            route_number=bus_info['route_number'],
-                            detection_data=bus_info
-                        )
-                        db.add(detection)
+        # Обработка автобусов - сохранение детекций
+        for bus_info in results.get('buses', []):
+            detection = BusDetection(
+                stop_id=stop_id,
+                bus_number=bus_info.get('bus_number'),
+                detected_at=datetime.now(),
+                confidence=bus_info.get('confidence'),
+                bus_bbox=bus_info.get('bbox'),
+                detection_data=bus_info
+            )
+            db.add(detection)
         
         db.commit()
         
         return {
             "success": True,
             "people_count": results['people_count'],
-            "buses_detected": len(results['buses'])
+            "buses_detected": results.get('buses_count', 0)
         }
         
     except Exception as e:
@@ -97,14 +84,13 @@ def process_video_frame_task(frame_data: bytes, stop_id: int, route_id: int):
 
 
 @celery_app.task(name="process_video_stream")
-def process_video_stream_task(stream_url: str, stop_id: int, route_id: int):
+def process_video_stream_task(stream_url: str, stop_id: int):
     """
     Обработка видеопотока (для длительных потоков)
     
     Args:
         stream_url: URL видеопотока
         stop_id: ID остановки
-        route_id: ID маршрута
     """
     # Для длительных задач можно использовать другой подход
     # Например, запуск отдельного процесса обработки

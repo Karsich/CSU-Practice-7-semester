@@ -1,6 +1,6 @@
 """
 Сервис компьютерного зрения на базе YOLO
-Обеспечивает детекцию людей, автобусов и распознавание номеров маршрутов
+Обеспечивает детекцию людей, автобусов и распознавание номеров автобусов
 """
 import cv2
 import numpy as np
@@ -8,8 +8,22 @@ from typing import List, Dict, Tuple, Optional
 from datetime import datetime
 from ultralytics import YOLO
 import torch
+import re
 
 from core.config import settings
+
+# Попытка импорта OCR библиотек
+try:
+    import easyocr
+    EASYOCR_AVAILABLE = True
+except ImportError:
+    EASYOCR_AVAILABLE = False
+
+try:
+    import pytesseract
+    TESSERACT_AVAILABLE = True
+except ImportError:
+    TESSERACT_AVAILABLE = False
 
 
 class CVService:
@@ -25,6 +39,14 @@ class CVService:
         self.bus_class = 5
         self.car_class = 2
         self.truck_class = 7
+        
+        # Инициализация OCR для распознавания номеров автобусов
+        self.ocr_reader = None
+        if EASYOCR_AVAILABLE:
+            try:
+                self.ocr_reader = easyocr.Reader(['en', 'ru'], gpu=False)
+            except Exception as e:
+                print(f"Не удалось инициализировать EasyOCR: {e}")
         
         # Для трекинга объектов между кадрами
         self.tracker = None
@@ -119,16 +141,16 @@ class CVService:
         detections = self.detect_objects(frame)
         return detections['buses']
     
-    def recognize_route_number(self, frame: np.ndarray, bus_bbox: Tuple[int, int, int, int]) -> Optional[str]:
+    def recognize_bus_number(self, frame: np.ndarray, bus_bbox: Tuple[int, int, int, int]) -> Optional[str]:
         """
-        Распознавание номера маршрута на автобусе
+        Распознавание номера автобуса
         
         Args:
             frame: кадр изображения
             bus_bbox: координаты автобуса (x1, y1, x2, y2)
             
         Returns:
-            Распознанный номер маршрута или None
+            Распознанный номер автобуса или None
         """
         x1, y1, x2, y2 = map(int, bus_bbox)
         
@@ -140,42 +162,94 @@ class CVService:
         
         # Увеличение контрастности для лучшего распознавания
         gray = cv2.cvtColor(bus_roi, cv2.COLOR_BGR2GRAY)
+        
+        # Улучшение изображения
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         enhanced = clahe.apply(gray)
         
-        # Здесь можно добавить OCR (например, Tesseract или EasyOCR)
-        # Для демонстрации возвращаем None
-        # В реальной системе здесь бы была интеграция с OCR
+        # Бинаризация для лучшего распознавания текста
+        _, binary = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         
-        # Пример: можно использовать дополнительную YOLO модель для детекции номеров
-        # или OCR библиотеку типа pytesseract
+        # Попытка распознавания через EasyOCR
+        if self.ocr_reader is not None:
+            try:
+                results = self.ocr_reader.readtext(binary)
+                for (bbox, text, confidence) in results:
+                    if confidence > 0.5:  # Минимальная уверенность
+                        # Очистка текста от лишних символов
+                        cleaned_text = re.sub(r'[^0-9А-ЯA-Z]', '', text.upper())
+                        if len(cleaned_text) >= 2:  # Номер должен быть минимум 2 символа
+                            return cleaned_text
+            except Exception as e:
+                print(f"Ошибка EasyOCR: {e}")
+        
+        # Попытка распознавания через Tesseract
+        if TESSERACT_AVAILABLE:
+            try:
+                text = pytesseract.image_to_string(binary, config='--psm 7 -c tessedit_char_whitelist=0123456789АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ')
+                cleaned_text = re.sub(r'[^0-9А-ЯA-Z]', '', text.upper())
+                if len(cleaned_text) >= 2:
+                    return cleaned_text
+            except Exception as e:
+                print(f"Ошибка Tesseract: {e}")
         
         return None
     
-    def process_video_frame(self, frame: np.ndarray, stop_zone: Optional[Tuple] = None) -> Dict:
+    def detect_stop_zone(self, frame: np.ndarray, stop_zone_coords: Optional[List[List[float]]] = None) -> Optional[Tuple[int, int, int, int]]:
+        """
+        Определение зоны остановки на кадре
+        
+        Args:
+            frame: кадр изображения
+            stop_zone_coords: координаты зоны остановки в формате [[x1,y1], [x2,y2], ...]
+            
+        Returns:
+            Координаты зоны остановки (x1, y1, x2, y2) или None
+        """
+        if stop_zone_coords is None or len(stop_zone_coords) < 2:
+            # Если координаты не заданы, используем весь кадр
+            h, w = frame.shape[:2]
+            return (0, 0, w, h)
+        
+        # Преобразуем координаты в прямоугольник
+        # Берем минимальные и максимальные значения
+        x_coords = [coord[0] for coord in stop_zone_coords]
+        y_coords = [coord[1] for coord in stop_zone_coords]
+        
+        x1 = int(min(x_coords))
+        y1 = int(min(y_coords))
+        x2 = int(max(x_coords))
+        y2 = int(max(y_coords))
+        
+        return (x1, y1, x2, y2)
+    
+    def process_video_frame(self, frame: np.ndarray, stop_zone_coords: Optional[List[List[float]]] = None) -> Dict:
         """
         Обработка кадра видеопотока
         
         Args:
             frame: кадр изображения
-            stop_zone: координаты зоны остановки для подсчета людей
+            stop_zone_coords: координаты зоны остановки для подсчета людей
             
         Returns:
             Результаты обработки
         """
         detections = self.detect_objects(frame)
         
+        # Определение зоны остановки
+        stop_zone = self.detect_stop_zone(frame, stop_zone_coords)
+        
         # Подсчет людей в зоне остановки
         people_in_stop = self.count_people_in_zone(frame, stop_zone) if stop_zone else len(detections['people'])
         
-        # Обработка автобусов
+        # Обработка автобусов - распознавание номеров
         buses_info = []
         for bus_det in detections['buses']:
-            route_number = self.recognize_route_number(frame, bus_det['bbox'])
+            bus_number = self.recognize_bus_number(frame, bus_det['bbox'])
             buses_info.append({
                 'bbox': bus_det['bbox'],
                 'confidence': bus_det['confidence'],
-                'route_number': route_number
+                'bus_number': bus_number
             })
         
         return {
@@ -183,6 +257,8 @@ class CVService:
             'people_count': people_in_stop,
             'people_detections': detections['people'],
             'buses': buses_info,
+            'buses_count': len(buses_info),
+            'stop_zone': stop_zone,
             'total_detections': len(detections['people']) + len(detections['buses'])
         }
     
@@ -211,10 +287,17 @@ class CVService:
             x1, y1, x2, y2 = map(int, bus['bbox'])
             cv2.rectangle(result_frame, (x1, y1), (x2, y2), (255, 0, 0), 3)
             label = f"Bus {bus['confidence']:.2f}"
-            if bus.get('route_number'):
-                label += f" Route: {bus['route_number']}"
+            if bus.get('bus_number'):
+                label += f" №{bus['bus_number']}"
             cv2.putText(result_frame, label, (x1, y1 - 10), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+        
+        # Отрисовка зоны остановки (если задана)
+        if detections.get('stop_zone'):
+            x1, y1, x2, y2 = detections['stop_zone']
+            cv2.rectangle(result_frame, (x1, y1), (x2, y2), (255, 255, 0), 2)
+            cv2.putText(result_frame, "Stop Zone", (x1, y1 - 10),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
         
         # Отрисовка автомобилей (желтый)
         for car in detections.get('cars', []):

@@ -18,6 +18,28 @@ from tasks.video_tasks import process_video_frame_task
 
 router = APIRouter()
 
+# Конфигурация камер с сайта stream.is74.ru
+IS74_CAMERAS = {
+    "camera1": {
+        "name": "250-летия Челябинска - Академика Макеева",
+        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=ab7346d3-b64c-4754-a02a-96f01fd2a2fa&quality=main",
+        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=ab7346d3-b64c-4754-a02a-96f01fd2a2fa",
+        "uuid": "ab7346d3-b64c-4754-a02a-96f01fd2a2fa"
+    },
+    "camera2": {
+        "name": "250-летия Челябинска - Салавата Юлаева",
+        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=0cff55c4-ba25-4976-bd39-276fcbdb054a&quality=main",
+        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=0cff55c4-ba25-4976-bd39-276fcbdb054a",
+        "uuid": "0cff55c4-ba25-4976-bd39-276fcbdb054a"
+    },
+    "camera3": {
+        "name": "Академика Королёва - Университетская Набережная",
+        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=57164ea3-c4fa-45ae-b315-79544770eb36&quality=main",
+        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=57164ea3-c4fa-45ae-b315-79544770eb36",
+        "uuid": "57164ea3-c4fa-45ae-b315-79544770eb36"
+    }
+}
+
 
 @router.post("/detect")
 async def detect_objects(file: UploadFile = File(...)):
@@ -75,10 +97,9 @@ async def detect_with_visualization(file: UploadFile = File(...)):
     )
 
 
-@router.post("/process-frame/{stop_id}/{route_id}")
+@router.post("/process-frame/{stop_id}")
 async def process_frame_endpoint(
     stop_id: int,
-    route_id: int,
     file: UploadFile = File(...)
 ):
     """
@@ -87,7 +108,7 @@ async def process_frame_endpoint(
     contents = await file.read()
     
     # Отправка задачи в Celery
-    result = process_video_frame_task.delay(contents, stop_id, route_id)
+    result = process_video_frame_task.delay(contents, stop_id)
     
     return {
         "task_id": result.id,
@@ -242,4 +263,208 @@ async def process_video_stream_websocket(websocket: WebSocket):
             await websocket.close()
         except:
             pass
+
+
+@router.get("/cameras")
+async def get_available_cameras():
+    """
+    Получение списка доступных камер
+    """
+    return {
+        "cameras": [
+            {
+                "id": cam_id,
+                "name": cam_info["name"],
+                "uuid": cam_info["uuid"]
+            }
+            for cam_id, cam_info in IS74_CAMERAS.items()
+        ]
+    }
+
+
+@router.get("/camera/{camera_id}/stream")
+async def get_camera_stream(camera_id: str, with_detection: bool = False):
+    """
+    Получение видеопотока с камеры
+    
+    Args:
+        camera_id: ID камеры (camera1, camera2, camera3)
+        with_detection: Включить детекцию объектов (по умолчанию False)
+    """
+    if camera_id not in IS74_CAMERAS:
+        raise HTTPException(status_code=404, detail="Камера не найдена")
+    
+    camera = IS74_CAMERAS[camera_id]
+    
+    if with_detection:
+        # Возвращаем информацию о потоке с детекцией
+        return {
+            "camera_id": camera_id,
+            "camera_name": camera["name"],
+            "stream_url": camera["rtsp"],
+            "hls_url": camera["hls"],
+            "detection_enabled": True,
+            "note": "Используйте WebSocket эндпоинт /camera/{camera_id}/stream-ws для просмотра с детекцией"
+        }
+    else:
+        # Возвращаем прямую ссылку на поток
+        return {
+            "camera_id": camera_id,
+            "camera_name": camera["name"],
+            "rtsp_url": camera["rtsp"],
+            "hls_url": camera["hls"],
+            "detection_enabled": False
+        }
+
+
+@router.websocket("/camera/{camera_id}/stream-ws")
+async def camera_stream_websocket(websocket: WebSocket, camera_id: str, with_detection: bool = True):
+    """
+    WebSocket поток с камеры с возможностью детекции
+    
+    Args:
+        camera_id: ID камеры (camera1, camera2, camera3)
+        with_detection: Включить детекцию объектов
+    """
+    if camera_id not in IS74_CAMERAS:
+        await websocket.close(code=1008, reason="Камера не найдена")
+        return
+    
+    await websocket.accept()
+    
+    camera = IS74_CAMERAS[camera_id]
+    stream_url = camera["rtsp"]
+    
+    try:
+        # Открываем видеопоток
+        cap = cv2.VideoCapture(stream_url)
+        
+        if not cap.isOpened():
+            await websocket.send_json({
+                "error": f"Не удалось открыть видеопоток камеры {camera_id}"
+            })
+            await websocket.close()
+            return
+        
+        await websocket.send_json({
+            "status": "connected",
+            "camera_name": camera["name"],
+            "detection_enabled": with_detection
+        })
+        
+        frame_count = 0
+        last_time = asyncio.get_event_loop().time()
+        
+        while True:
+            ret, frame = cap.read()
+            
+            if not ret:
+                await websocket.send_json({"error": "Ошибка чтения кадра"})
+                break
+            
+            frame_count += 1
+            
+            # Обрабатываем каждый кадр или пропускаем для оптимизации
+            if frame_count % 3 == 0:  # Обрабатываем каждый 3-й кадр
+                if with_detection:
+                    # Детекция объектов
+                    detections = cv_service.detect_objects(frame)
+                    result_frame = cv_service.draw_detections(frame, detections)
+                else:
+                    result_frame = frame
+                
+                # Кодируем кадр
+                _, encoded = cv2.imencode('.jpg', result_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                
+                # Отправляем кадр
+                await websocket.send_bytes(encoded.tobytes())
+                
+                # Отправляем метаданные если включена детекция
+                if with_detection:
+                    await asyncio.sleep(0.001)
+                    await websocket.send_json({
+                        "people_count": len(detections['people']),
+                        "buses_count": len(detections['buses']),
+                        "cars_count": len(detections.get('cars', [])),
+                        "frame_number": frame_count
+                    })
+                
+                # Ограничение FPS (примерно 10 FPS)
+                await asyncio.sleep(0.1)
+            
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"Ошибка обработки потока камеры {camera_id}: {e}")
+        try:
+            await websocket.send_json({"error": str(e)})
+        except:
+            pass
+    finally:
+        if 'cap' in locals():
+            cap.release()
+        try:
+            await websocket.close()
+        except:
+            pass
+
+
+@router.get("/camera/{camera_id}/snapshot")
+async def get_camera_snapshot(camera_id: str, with_detection: bool = False):
+    """
+    Получение снимка с камеры
+    
+    Args:
+        camera_id: ID камеры
+        with_detection: Включить детекцию объектов
+    """
+    if camera_id not in IS74_CAMERAS:
+        raise HTTPException(status_code=404, detail="Камера не найдена")
+    
+    camera = IS74_CAMERAS[camera_id]
+    
+    try:
+        # Получаем снимок через API
+        snapshot_url = f"https://cdn.cams.is74.ru/snapshot?uuid={camera['uuid']}"
+        
+        import httpx
+        async with httpx.AsyncClient() as client:
+            response = await client.get(snapshot_url, timeout=10.0)
+            if response.status_code != 200:
+                raise HTTPException(status_code=500, detail="Не удалось получить снимок")
+            
+            # Декодируем изображение
+            nparr = np.frombuffer(response.content, np.uint8)
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            
+            if frame is None:
+                raise HTTPException(status_code=500, detail="Не удалось декодировать изображение")
+            
+            detections = None
+            if with_detection:
+                # Обрабатываем с детекцией
+                detections = cv_service.detect_objects(frame)
+                result_frame = cv_service.draw_detections(frame, detections)
+            else:
+                result_frame = frame
+            
+            # Кодируем результат
+            _, encoded_img = cv2.imencode('.jpg', result_frame)
+            img_bytes = encoded_img.tobytes()
+            
+            headers = {
+                "X-Camera-Name": camera["name"]
+            }
+            if with_detection and detections:
+                headers["X-People-Count"] = str(len(detections.get('people', [])))
+                headers["X-Buses-Count"] = str(len(detections.get('buses', [])))
+            
+            return StreamingResponse(
+                BytesIO(img_bytes),
+                media_type="image/jpeg",
+                headers=headers
+            )
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка получения снимка: {str(e)}")
 
