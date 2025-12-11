@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Система мониторинга транспорта</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚌 Система мониторинга загруженности транспорта</h1>
+            <nav>
+                <button class="nav-btn active" data-tab="passenger">Для пассажиров</button>
+                <button class="nav-btn" data-tab="analytics">Аналитика</button>
+            </nav>
+        </header>
+
+        <!-- Панель для пассажиров -->
+        <div id="passenger-panel" class="panel active">
+            <div class="route-selector">
+                <label for="route-select">Выберите маршрут:</label>
+                <select id="route-select">
+                    <option value="">Загрузка...</option>
+                </select>
+                <label for="stop-select">Выберите остановку:</label>
+                <select id="stop-select">
+                    <option value="">Сначала выберите маршрут</option>
+                </select>
+            </div>
+
+            <div id="current-load-info" class="load-info hidden">
+                <h2>Текущая загруженность</h2>
+                <div class="load-card">
+                    <div class="load-status" id="load-status">
+                        <span class="status-indicator" id="status-indicator"></span>
+                        <span id="status-text">Загрузка...</span>
+                    </div>
+                    <div class="load-details">
+                        <p><strong>Маршрут:</strong> <span id="route-number"></span></p>
+                        <p><strong>Остановка:</strong> <span id="stop-name"></span></p>
+                        <p><strong>Людей на остановке:</strong> <span id="people-count"></span></p>
+                        <p><strong>Загруженность:</strong> <span id="load-percentage"></span>%</p>
+                        <p><strong>Обновлено:</strong> <span id="updated-at"></span></p>
+                    </div>
+                </div>
+
+                <div class="next-buses">
+                    <h3>Ближайшие автобусы</h3>
+                    <div id="buses-list"></div>
+                </div>
+
+                <div class="forecast-section">
+                    <h3>Прогноз на 24 часа</h3>
+                    <canvas id="forecast-chart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Аналитическая панель -->
+        <div id="analytics-panel" class="panel">
+            <h2>Аналитика загруженности</h2>
+            <div class="analytics-controls">
+                <label for="analytics-route">Маршрут:</label>
+                <select id="analytics-route">
+                    <option value="">Загрузка...</option>
+                </select>
+                <label for="analytics-stop">Остановка:</label>
+                <select id="analytics-stop">
+                    <option value="">Все остановки</option>
+                </select>
+                <label for="period">Период:</label>
+                <select id="period">
+                    <option value="1">1 день</option>
+                    <option value="7" selected>7 дней</option>
+                    <option value="30">30 дней</option>
+                </select>
+                <button id="load-analytics">Загрузить</button>
+            </div>
+
+            <div id="analytics-results" class="hidden">
+                <div class="chart-container">
+                    <h3>Статистика загруженности</h3>
+                    <canvas id="analytics-chart"></canvas>
+                </div>
+                <div class="peak-hours">
+                    <h3>Часы пиковой загруженности</h3>
+                    <div id="peak-hours-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
+
