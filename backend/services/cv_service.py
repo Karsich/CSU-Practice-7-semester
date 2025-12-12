@@ -11,6 +11,7 @@ import torch
 import re
 
 from core.config import settings
+from collections import deque
 
 # Попытка импорта OCR библиотек
 try:
@@ -51,9 +52,17 @@ class CVService:
         # Для трекинга объектов между кадрами
         self.tracker = None
         
+        # Для сглаживания результатов детекции (стабильность)
+        self.detection_history = {
+            'people': deque(maxlen=5),  # История последних 5 детекций
+            'buses': deque(maxlen=5),
+            'cars': deque(maxlen=5)
+        }
+        
     def detect_objects(self, frame: np.ndarray) -> Dict:
         """
         Детекция объектов на кадре
+        Оптимизировано для работы с HD кадрами
         
         Args:
             frame: numpy array изображения в формате BGR
@@ -61,8 +70,14 @@ class CVService:
         Returns:
             Словарь с результатами детекции
         """
-        # Запуск детекции
-        results = self.model(frame, conf=self.confidence_threshold, verbose=False)
+        # Для HD кадров используем большее разрешение для детекции
+        # YOLO автоматически масштабирует, но для HD лучше использовать imgsz=1280
+        # Запуск детекции с оптимизацией для HD
+        h, _ = frame.shape[:2]
+        # Если кадр HD (высота > 720), используем большее разрешение для детекции
+        imgsz = 1280 if h > 720 else 640
+        
+        results = self.model(frame, conf=self.confidence_threshold, imgsz=imgsz, verbose=False)
         
         detections = {
             'people': [],
@@ -96,7 +111,36 @@ class CVService:
                     elif cls in [self.car_class, self.truck_class]:
                         detections['cars'].append(detection)
         
+        # Сохраняем в историю для сглаживания
+        self.detection_history['people'].append(len(detections['people']))
+        self.detection_history['buses'].append(len(detections['buses']))
+        self.detection_history['cars'].append(len(detections['cars']))
+        
         return detections
+    
+    def get_smoothed_counts(self) -> Dict[str, int]:
+        """
+        Получение сглаженных (стабильных) значений счетчиков
+        Использует медианное значение для устранения выбросов
+        
+        Returns:
+            Словарь со сглаженными значениями
+        """
+        def get_median(values):
+            if not values:
+                return 0
+            sorted_values = sorted(values)
+            n = len(sorted_values)
+            if n % 2 == 0:
+                return int((sorted_values[n//2 - 1] + sorted_values[n//2]) / 2)
+            else:
+                return int(sorted_values[n//2])
+        
+        return {
+            'people': get_median(list(self.detection_history['people'])),
+            'buses': get_median(list(self.detection_history['buses'])),
+            'cars': get_median(list(self.detection_history['cars']))
+        }
     
     def count_people_in_zone(self, frame: np.ndarray, zone: Optional[Tuple[int, int, int, int]] = None) -> int:
         """
@@ -144,9 +188,10 @@ class CVService:
     def recognize_bus_number(self, frame: np.ndarray, bus_bbox: Tuple[int, int, int, int]) -> Optional[str]:
         """
         Распознавание номера автобуса
+        Оптимизировано для работы с HD кадрами - лучшее качество распознавания
         
         Args:
-            frame: кадр изображения
+            frame: кадр изображения (HD качество)
             bus_bbox: координаты автобуса (x1, y1, x2, y2)
             
         Returns:
@@ -154,28 +199,54 @@ class CVService:
         """
         x1, y1, x2, y2 = map(int, bus_bbox)
         
-        # Извлечение области автобуса
+        # Извлечение области автобуса с небольшим отступом для лучшего распознавания
+        padding = 10
+        x1 = max(0, x1 - padding)
+        y1 = max(0, y1 - padding)
+        x2 = min(frame.shape[1], x2 + padding)
+        y2 = min(frame.shape[0], y2 + padding)
+        
         bus_roi = frame[y1:y2, x1:x2]
         
         if bus_roi.size == 0:
             return None
         
+        # Для HD кадров можно увеличить размер области для лучшего распознавания
+        h, w = bus_roi.shape[:2]
+        if h < 50 or w < 50:
+            # Увеличиваем маленькие области
+            scale = max(2.0, 100.0 / max(h, w))
+            new_h, new_w = int(h * scale), int(w * scale)
+            bus_roi = cv2.resize(bus_roi, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+        
         # Увеличение контрастности для лучшего распознавания
         gray = cv2.cvtColor(bus_roi, cv2.COLOR_BGR2GRAY)
         
-        # Улучшение изображения
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        # Улучшение изображения с более агрессивными настройками для HD
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
         enhanced = clahe.apply(gray)
         
+        # Дополнительное улучшение резкости для HD кадров
+        kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+        sharpened = cv2.filter2D(enhanced, -1, kernel)
+        
         # Бинаризация для лучшего распознавания текста
-        _, binary = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        _, binary = cv2.threshold(sharpened, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         
         # Попытка распознавания через EasyOCR
+        # Для HD кадров используем более высокий порог уверенности
         if self.ocr_reader is not None:
             try:
-                results = self.ocr_reader.readtext(binary)
-                for (bbox, text, confidence) in results:
-                    if confidence > 0.5:  # Минимальная уверенность
+                # Используем оба варианта: бинарное и улучшенное изображение
+                results_binary = self.ocr_reader.readtext(binary)
+                results_enhanced = self.ocr_reader.readtext(enhanced)
+                
+                # Объединяем результаты
+                all_results = results_binary + results_enhanced
+                
+                for (bbox, text, confidence) in all_results:
+                    # Для HD кадров можно использовать более высокий порог
+                    if confidence > 0.6:  # Повышенный порог для HD
                         # Очистка текста от лишних символов
                         cleaned_text = re.sub(r'[^0-9А-ЯA-Z]', '', text.upper())
                         if len(cleaned_text) >= 2:  # Номер должен быть минимум 2 символа

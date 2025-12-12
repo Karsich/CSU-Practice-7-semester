@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     CORS_ORIGINS: List[str] = ["*"]
     
     # YOLO Model
-    YOLO_MODEL_PATH: str = "yolov8n.pt"  # Будет использоваться предобученная модель
-    CONFIDENCE_THRESHOLD: float = 0.5
+    YOLO_MODEL_PATH: str = "yolov8s.pt"  # Будет использоваться предобученная модель
+    CONFIDENCE_THRESHOLD: float = 0.2
     
     # Video Processing
     FRAME_SKIP: int = 5  # Обрабатывать каждый 5-й кадр

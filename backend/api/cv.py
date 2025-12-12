@@ -19,22 +19,26 @@ from tasks.video_tasks import process_video_frame_task
 router = APIRouter()
 
 # Конфигурация камер с сайта stream.is74.ru
+# Используется HD качество для лучшего распознавания номеров автобусов
 IS74_CAMERAS = {
     "camera1": {
         "name": "250-летия Челябинска - Академика Макеева",
-        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=ab7346d3-b64c-4754-a02a-96f01fd2a2fa&quality=main",
+        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=ab7346d3-b64c-4754-a02a-96f01fd2a2fa&quality=hd",
+        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=ab7346d3-b64c-4754-a02a-96f01fd2a2fa&quality=main",  # Резервный вариант
         "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=ab7346d3-b64c-4754-a02a-96f01fd2a2fa",
         "uuid": "ab7346d3-b64c-4754-a02a-96f01fd2a2fa"
     },
     "camera2": {
         "name": "250-летия Челябинска - Салавата Юлаева",
-        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=0cff55c4-ba25-4976-bd39-276fcbdb054a&quality=main",
+        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=0cff55c4-ba25-4976-bd39-276fcbdb054a&quality=hd",
+        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=0cff55c4-ba25-4976-bd39-276fcbdb054a&quality=main",  # Резервный вариант
         "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=0cff55c4-ba25-4976-bd39-276fcbdb054a",
         "uuid": "0cff55c4-ba25-4976-bd39-276fcbdb054a"
     },
     "camera3": {
         "name": "Академика Королёва - Университетская Набережная",
-        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=57164ea3-c4fa-45ae-b315-79544770eb36&quality=main",
+        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=57164ea3-c4fa-45ae-b315-79544770eb36&quality=hd",
+        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=57164ea3-c4fa-45ae-b315-79544770eb36&quality=main",  # Резервный вариант
         "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=57164ea3-c4fa-45ae-b315-79544770eb36",
         "uuid": "57164ea3-c4fa-45ae-b315-79544770eb36"
     }
@@ -321,6 +325,7 @@ async def get_camera_stream(camera_id: str, with_detection: bool = False):
 async def camera_stream_websocket(websocket: WebSocket, camera_id: str, with_detection: bool = True):
     """
     WebSocket поток с камеры с возможностью детекции
+    Использует HD качество для лучшего распознавания номеров автобусов
     
     Args:
         camera_id: ID камеры (camera1, camera2, camera3)
@@ -333,18 +338,31 @@ async def camera_stream_websocket(websocket: WebSocket, camera_id: str, with_det
     await websocket.accept()
     
     camera = IS74_CAMERAS[camera_id]
-    stream_url = camera["rtsp"]
+    # Пытаемся использовать HD качество, если недоступно - переключаемся на main
+    stream_url = camera["rtsp"]  # HD качество
     
     try:
-        # Открываем видеопоток
+        # Открываем видеопоток в HD качестве
         cap = cv2.VideoCapture(stream_url)
         
+        # Настройка для лучшего качества
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Минимальный буфер для снижения задержки
+        
         if not cap.isOpened():
-            await websocket.send_json({
-                "error": f"Не удалось открыть видеопоток камеры {camera_id}"
-            })
-            await websocket.close()
-            return
+            # Пытаемся использовать резервный поток (main качество)
+            if "rtsp_main" in camera:
+                stream_url = camera["rtsp_main"]
+                cap = cv2.VideoCapture(stream_url)
+                await websocket.send_json({
+                    "warning": f"HD поток недоступен, используется стандартное качество для камеры {camera_id}"
+                })
+            
+            if not cap.isOpened():
+                await websocket.send_json({
+                    "error": f"Не удалось открыть видеопоток камеры {camera_id}"
+                })
+                await websocket.close()
+                return
         
         await websocket.send_json({
             "status": "connected",
@@ -353,7 +371,13 @@ async def camera_stream_websocket(websocket: WebSocket, camera_id: str, with_det
         })
         
         frame_count = 0
-        last_time = asyncio.get_event_loop().time()
+        last_processing_time = asyncio.get_event_loop().time()
+        target_fps = 2  # 2 кадра в секунду для синхронизации
+        frame_interval = 1.0 / target_fps  # 0.5 секунды между кадрами
+        
+        # Получаем FPS потока для правильной синхронизации
+        stream_fps = cap.get(cv2.CAP_PROP_FPS) or 25
+        frames_to_skip = max(1, int(stream_fps / target_fps))  # Сколько кадров пропускать
         
         while True:
             ret, frame = cap.read()
@@ -363,34 +387,57 @@ async def camera_stream_websocket(websocket: WebSocket, camera_id: str, with_det
                 break
             
             frame_count += 1
+            current_time = asyncio.get_event_loop().time()
             
-            # Обрабатываем каждый кадр или пропускаем для оптимизации
-            if frame_count % 3 == 0:  # Обрабатываем каждый 3-й кадр
-                if with_detection:
-                    # Детекция объектов
-                    detections = cv_service.detect_objects(frame)
-                    result_frame = cv_service.draw_detections(frame, detections)
-                else:
-                    result_frame = frame
+            # Пропускаем кадры для достижения 2 FPS
+            if frame_count % frames_to_skip != 0:
+                continue
+            
+            # Проверяем, прошло ли достаточно времени с последней обработки
+            time_since_last = current_time - last_processing_time
+            if time_since_last < frame_interval:
+                # Пропускаем кадр, если еще не прошло 0.5 секунды
+                continue
+            
+            last_processing_time = current_time
+            
+            if with_detection:
+                # Детекция объектов (HD качество улучшает распознавание номеров)
+                detections = cv_service.detect_objects(frame)
                 
-                # Кодируем кадр
-                _, encoded = cv2.imencode('.jpg', result_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                # Получаем сглаженные значения для стабильности
+                smoothed_counts = cv_service.get_smoothed_counts()
                 
-                # Отправляем кадр
-                await websocket.send_bytes(encoded.tobytes())
+                result_frame = cv_service.draw_detections(frame, detections)
                 
-                # Отправляем метаданные если включена детекция
-                if with_detection:
-                    await asyncio.sleep(0.001)
-                    await websocket.send_json({
-                        "people_count": len(detections['people']),
-                        "buses_count": len(detections['buses']),
-                        "cars_count": len(detections.get('cars', [])),
-                        "frame_number": frame_count
-                    })
-                
-                # Ограничение FPS (примерно 10 FPS)
-                await asyncio.sleep(0.1)
+                # Используем сглаженные значения для отображения
+                display_counts = smoothed_counts
+            else:
+                result_frame = frame
+                display_counts = {"people": 0, "buses": 0, "cars": 0}
+            
+            # Кодируем кадр с высоким качеством для HD потоков
+            # Используем качество 90 для лучшей детализации (важно для распознавания номеров)
+            _, encoded = cv2.imencode('.jpg', result_frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+            
+            # Отправляем кадр
+            await websocket.send_bytes(encoded.tobytes())
+            
+            # Отправляем метаданные если включена детекция (со сглаженными значениями)
+            if with_detection:
+                await asyncio.sleep(0.001)
+                await websocket.send_json({
+                    "people_count": display_counts['people'],
+                    "buses_count": display_counts['buses'],
+                    "cars_count": display_counts['cars'],
+                    "frame_number": frame_count,
+                    "raw_people": len(detections['people']),  # Сырые значения для отладки
+                    "raw_buses": len(detections['buses']),
+                    "raw_cars": len(detections.get('cars', []))
+                })
+            
+            # Небольшая задержка для стабильности (уже контролируется через frame_interval)
+            await asyncio.sleep(0.01)
             
     except WebSocketDisconnect:
         pass
