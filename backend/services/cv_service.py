@@ -55,8 +55,7 @@ class CVService:
         # Для сглаживания результатов детекции (стабильность)
         self.detection_history = {
             'people': deque(maxlen=5),  # История последних 5 детекций
-            'buses': deque(maxlen=5),
-            'cars': deque(maxlen=5)
+            'buses': deque(maxlen=5)
         }
         
     def detect_objects(self, frame: np.ndarray) -> Dict:
@@ -71,18 +70,35 @@ class CVService:
             Словарь с результатами детекции
         """
         # Для HD кадров используем большее разрешение для детекции
-        # YOLO автоматически масштабирует, но для HD лучше использовать imgsz=1280
-        # Запуск детекции с оптимизацией для HD
-        h, _ = frame.shape[:2]
-        # Если кадр HD (высота > 720), используем большее разрешение для детекции
-        imgsz = 1280 if h > 720 else 640
+        # Для маленьких объектов (15x8 пикселей на 2688x1520) нужна максимальная детализация
+        h, w = frame.shape[:2]
         
-        results = self.model(frame, conf=self.confidence_threshold, imgsz=imgsz, verbose=False)
+        # Для больших разрешений используем максимальный размер для детекции
+        # Это критично для детекции маленьких объектов
+        if h > 1500 or w > 2500:
+            # Для очень больших разрешений используем максимальный размер
+            imgsz = 1920  # Максимальный размер для лучшей детекции маленьких объектов
+        elif h > 720:
+            imgsz = 1280  # HD разрешение
+        else:
+            imgsz = 640  # Стандартное разрешение
+        
+        # Для маленьких объектов снижаем порог уверенности и увеличиваем детализацию
+        # Используем более агрессивные настройки для детекции людей
+        # Для людей используем еще более низкий порог (0.05) для детекции маленьких объектов
+        results = self.model(
+            frame, 
+            conf=0.05,  # Очень низкий порог для детекции маленьких людей (15x8 пикселей)
+            imgsz=imgsz, 
+            verbose=False,
+            agnostic_nms=False,  # Не объединять объекты разных классов
+            max_det=500,  # Увеличиваем максимальное количество детекций для маленьких объектов
+            iou=0.45  # Более строгий IoU для лучшего разделения близких объектов
+        )
         
         detections = {
             'people': [],
             'buses': [],
-            'cars': [],
             'timestamp': datetime.now(),
             'frame_shape': frame.shape
         }
@@ -98,23 +114,38 @@ class CVService:
                     conf = float(box.conf[0])
                     x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                     
+                    # Фильтрация по размеру для улучшения детекции маленьких объектов
+                    box_width = x2 - x1
+                    box_height = y2 - y1
+                    box_area = box_width * box_height
+                    frame_area = h * w
+                    
                     detection = {
                         'bbox': [float(x1), float(y1), float(x2), float(y2)],
                         'confidence': conf,
-                        'class_id': cls
+                        'class_id': cls,
+                        'area': box_area
                     }
                     
+                    # Детекция только людей и автобусов (машины исключены)
                     if cls == self.person_class:
-                        detections['people'].append(detection)
+                        # Для людей используем очень низкий порог для маленьких объектов
+                        # Принимаем людей даже если они очень маленькие, но с достаточной уверенностью
+                        min_person_area = frame_area * 0.00005  # 0.005% от площади кадра (для людей 15x8 пикселей)
+                        if box_area >= min_person_area or conf > 0.25:
+                            # Дополнительная проверка: соотношение сторон должно быть разумным для человека
+                            aspect_ratio = box_height / box_width if box_width > 0 else 0
+                            if aspect_ratio > 0.3 and aspect_ratio < 3.0:  # Люди обычно выше, чем шире
+                                detections['people'].append(detection)
                     elif cls == self.bus_class:
-                        detections['buses'].append(detection)
-                    elif cls in [self.car_class, self.truck_class]:
-                        detections['cars'].append(detection)
+                        # Для автобусов минимальный размер больше
+                        min_bus_area = frame_area * 0.0005  # 0.05% от площади кадра
+                        if box_area >= min_bus_area or conf > 0.4:
+                            detections['buses'].append(detection)
         
         # Сохраняем в историю для сглаживания
         self.detection_history['people'].append(len(detections['people']))
         self.detection_history['buses'].append(len(detections['buses']))
-        self.detection_history['cars'].append(len(detections['cars']))
         
         return detections
     
@@ -138,8 +169,7 @@ class CVService:
         
         return {
             'people': get_median(list(self.detection_history['people'])),
-            'buses': get_median(list(self.detection_history['buses'])),
-            'cars': get_median(list(self.detection_history['cars']))
+            'buses': get_median(list(self.detection_history['buses']))
         }
     
     def count_people_in_zone(self, frame: np.ndarray, zone: Optional[Tuple[int, int, int, int]] = None) -> int:
@@ -370,21 +400,12 @@ class CVService:
             cv2.putText(result_frame, "Stop Zone", (x1, y1 - 10),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
         
-        # Отрисовка автомобилей (желтый)
-        for car in detections.get('cars', []):
-            x1, y1, x2, y2 = map(int, car['bbox'])
-            cv2.rectangle(result_frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
-            cv2.putText(result_frame, f"Car {car['confidence']:.2f}", 
-                       (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-        
         # Добавляем статистику в левый верхний угол
         stats_y = 30
         cv2.putText(result_frame, f"People: {len(detections.get('people', []))}", 
                    (10, stats_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         cv2.putText(result_frame, f"Buses: {len(detections.get('buses', []))}", 
                    (10, stats_y + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
-        cv2.putText(result_frame, f"Cars: {len(detections.get('cars', []))}", 
-                   (10, stats_y + 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
         
         return result_frame
 

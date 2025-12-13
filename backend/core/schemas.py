@@ -2,7 +2,7 @@
 Pydantic схемы для валидации данных
 """
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime
 
 
@@ -15,7 +15,9 @@ class StopBase(BaseModel):
     longitude: float = Field(..., ge=-180, le=180)
     camera_id: Optional[str] = None  # ID камеры (camera1, camera2, camera3)
     camera_url: Optional[str] = None  # URL видеопотока с камеры (опционально)
+    yandex_map_url: Optional[str] = None  # Ссылка на Яндекс.Карты для отслеживания автобусов
     stop_zone_coords: Optional[List[List[float]]] = None  # Координаты зоны остановки на кадре
+    original_resolution: Optional[Dict[str, int]] = None  # Оригинальное разрешение камеры
     is_active: bool = True
 
 

@@ -20,7 +20,9 @@ class Stop(Base):
     longitude = Column(Float, nullable=False)
     camera_id = Column(String(100))  # ID камеры (например, camera1, camera2, camera3)
     camera_url = Column(String(500))  # URL видеопотока с камеры (опционально)
+    yandex_map_url = Column(String(500))  # Ссылка на Яндекс.Карты для отслеживания автобусов
     stop_zone_coords = Column(JSON)  # Координаты зоны остановки на кадре [(x1,y1), (x2,y2), ...]
+    original_resolution = Column(JSON)  # Оригинальное разрешение камеры {"width": 2688, "height": 1520}
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     

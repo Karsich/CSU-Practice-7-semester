@@ -124,3 +124,4 @@ curl -X POST "http://localhost:8000/api/v1/cv/process-video?save_output=true" \
 - Качество JPEG для WebSocket: 90%
 - Поддерживаемые форматы: MP4, AVI, MOV и другие форматы, поддерживаемые OpenCV
 
+

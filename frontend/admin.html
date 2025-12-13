@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Админ-панель - Настройка зон остановок</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        h1 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+        
+        .admin-panel {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+        }
+        
+        .sidebar {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .sidebar h2 {
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #333;
+        }
+        
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        .form-group textarea {
+            resize: vertical;
+            min-height: 60px;
+        }
+        
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #5568d3;
+        }
+        
+        .btn-success {
+            background: #4caf50;
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background: #45a049;
+        }
+        
+        .btn-danger {
+            background: #f44336;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #d32f2f;
+        }
+        
+        .video-container {
+            background: #000;
+            border-radius: 10px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        #camera-canvas {
+            width: 100%;
+            height: auto;
+            display: block;
+            cursor: crosshair;
+        }
+        
+        .zone-overlay {
+            position: absolute;
+            border: 2px dashed #667eea;
+            background: rgba(102, 126, 234, 0.1);
+            pointer-events: none;
+        }
+        
+        .zone-label {
+            position: absolute;
+            top: -25px;
+            left: 0;
+            background: #667eea;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            pointer-events: none;
+        }
+        
+        .zones-list {
+            margin-top: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .zone-item {
+            padding: 10px;
+            background: #f5f5f5;
+            margin: 5px 0;
+            border-radius: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .zone-item button {
+            padding: 5px 10px;
+            font-size: 12px;
+        }
+        
+        .instructions {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        
+        .instructions h3 {
+            margin-bottom: 10px;
+            color: #1976d2;
+        }
+        
+        .instructions ol {
+            margin-left: 20px;
+        }
+        
+        .instructions li {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⚙️ Админ-панель - Настройка зон остановок</h1>
+        
+        <div class="admin-panel">
+            <div class="sidebar">
+                <div class="instructions">
+                    <h3>Инструкция:</h3>
+                    <ol>
+                        <li>Выберите камеру</li>
+                        <li>Загрузите кадр</li>
+                        <li>Нарисуйте прямоугольник для зоны остановки</li>
+                        <li>Введите название остановки</li>
+                        <li>Укажите координаты на карте</li>
+                        <li>Сохраните остановку</li>
+                    </ol>
+                </div>
+                
+                <div class="form-group">
+                    <label>Камера:</label>
+                    <select id="camera-select">
+                        <option value="">Выберите камеру...</option>
+                    </select>
+                </div>
+                
+                <button class="btn-primary" onclick="loadCameraFrame()">Загрузить кадр</button>
+                
+                <div class="form-group" style="margin-top: 20px;">
+                    <label>Название остановки:</label>
+                    <input type="text" id="stop-name" placeholder="Например: Центральная остановка">
+                </div>
+                
+                <div class="form-group">
+                    <label>Широта:</label>
+                    <input type="number" id="latitude" step="0.000001" placeholder="55.1644">
+                </div>
+                
+                <div class="form-group">
+                    <label>Долгота:</label>
+                    <input type="number" id="longitude" step="0.000001" placeholder="61.4368">
+                </div>
+                
+                <div class="form-group">
+                    <label>Ссылка Яндекс.Карты:</label>
+                    <input type="text" id="yandex-map-url" placeholder="https://yandex.ru/maps/...">
+                </div>
+                
+                <div class="zones-list" id="zones-list">
+                    <h3>Выделенные зоны:</h3>
+                    <div id="zones-container"></div>
+                </div>
+                
+                <button class="btn-success" onclick="saveStop()" style="width: 100%; margin-top: 20px;">Сохранить остановку</button>
+            </div>
+            
+            <div class="video-container">
+                <canvas id="camera-canvas"></canvas>
+                <div id="zones-overlay"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000/api/v1';
+        let cameras = [];
+        let selectedCamera = null;
+        let canvas, ctx;
+        let isDrawing = false;
+        let startX, startY;
+        let currentZone = null;
+        let zones = [];
+        let originalImage = null;
+        
+        // Инициализация
+        window.onload = () => {
+            canvas = document.getElementById('camera-canvas');
+            ctx = canvas.getContext('2d');
+            loadCameras();
+        };
+        
+        // Загрузка списка камер
+        async function loadCameras() {
+            try {
+                const response = await fetch(`${API_BASE}/cv/cameras`);
+                const data = await response.json();
+                cameras = data.cameras;
+                
+                const select = document.getElementById('camera-select');
+                select.innerHTML = '<option value="">Выберите камеру...</option>';
+                cameras.forEach(cam => {
+                    const option = document.createElement('option');
+                    option.value = cam.id;
+                    option.textContent = cam.name;
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Ошибка загрузки камер:', error);
+            }
+        }
+        
+        // Загрузка кадра с камеры
+        async function loadCameraFrame() {
+            const cameraId = document.getElementById('camera-select').value;
+            if (!cameraId) {
+                alert('Выберите камеру');
+                return;
+            }
+            
+            selectedCamera = cameras.find(c => c.id === cameraId);
+            
+            try {
+                // Получаем снимок с камеры
+                const response = await fetch(`${API_BASE}/cv/camera/${cameraId}/snapshot?with_detection=false`);
+                const blob = await response.blob();
+                
+                const img = new Image();
+                img.onload = () => {
+                    // Устанавливаем оригинальное разрешение
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+                    originalImage = img;
+                    
+                    // Очищаем зоны
+                    zones = [];
+                    updateZonesDisplay();
+                };
+                img.src = URL.createObjectURL(blob);
+            } catch (error) {
+                console.error('Ошибка загрузки кадра:', error);
+                alert('Не удалось загрузить кадр с камеры');
+            }
+        }
+        
+        // Обработка рисования зон
+        canvas.addEventListener('mousedown', (e) => {
+            if (!originalImage) return;
+            
+            isDrawing = true;
+            const rect = canvas.getBoundingClientRect();
+            startX = (e.clientX - rect.left) * (canvas.width / rect.width);
+            startY = (e.clientY - rect.top) * (canvas.height / rect.height);
+            
+            currentZone = {
+                x1: startX,
+                y1: startY,
+                x2: startX,
+                y2: startY
+            };
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isDrawing || !currentZone) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            currentZone.x2 = (e.clientX - rect.left) * (canvas.width / rect.width);
+            currentZone.y2 = (e.clientY - rect.top) * (canvas.height / rect.height);
+            
+            redrawCanvas();
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            if (isDrawing && currentZone) {
+                // Нормализуем координаты
+                const x1 = Math.min(currentZone.x1, currentZone.x2);
+                const y1 = Math.min(currentZone.y1, currentZone.y2);
+                const x2 = Math.max(currentZone.x1, currentZone.x2);
+                const y2 = Math.max(currentZone.y1, currentZone.y2);
+                
+                if (Math.abs(x2 - x1) > 10 && Math.abs(y2 - y1) > 10) {
+                    zones.push({
+                        coords: [[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
+                        name: `Зона ${zones.length + 1}`
+                    });
+                }
+                
+                currentZone = null;
+                isDrawing = false;
+                redrawCanvas();
+                updateZonesDisplay();
+            }
+        });
+        
+        // Перерисовка canvas
+        function redrawCanvas() {
+            if (!originalImage) return;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(originalImage, 0, 0);
+            
+            // Рисуем сохраненные зоны
+            zones.forEach((zone, index) => {
+                drawZone(zone.coords, zone.name, index);
+            });
+            
+            // Рисуем текущую зону
+            if (currentZone) {
+                const x1 = Math.min(currentZone.x1, currentZone.x2);
+                const y1 = Math.min(currentZone.y1, currentZone.y2);
+                const x2 = Math.max(currentZone.x1, currentZone.x2);
+                const y2 = Math.max(currentZone.y1, currentZone.y2);
+                
+                ctx.strokeStyle = '#667eea';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+                ctx.setLineDash([]);
+            }
+        }
+        
+        // Рисование зоны
+        function drawZone(coords, name, index) {
+            ctx.strokeStyle = '#667eea';
+            ctx.fillStyle = 'rgba(102, 126, 234, 0.1)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            
+            ctx.beginPath();
+            ctx.moveTo(coords[0][0], coords[0][1]);
+            for (let i = 1; i < coords.length; i++) {
+                ctx.lineTo(coords[i][0], coords[i][1]);
+            }
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.setLineDash([]);
+            
+            // Подпись
+            ctx.fillStyle = '#667eea';
+            ctx.font = '14px Arial';
+            ctx.fillText(name, coords[0][0], coords[0][1] - 5);
+        }
+        
+        // Обновление списка зон
+        function updateZonesDisplay() {
+            const container = document.getElementById('zones-container');
+            container.innerHTML = zones.map((zone, index) => `
+                <div class="zone-item">
+                    <span>${zone.name}</span>
+                    <button class="btn-danger" onclick="removeZone(${index})">Удалить</button>
+                </div>
+            `).join('');
+        }
+        
+        // Удаление зоны
+        function removeZone(index) {
+            zones.splice(index, 1);
+            redrawCanvas();
+            updateZonesDisplay();
+        }
+        
+        // Сохранение остановки
+        async function saveStop() {
+            const name = document.getElementById('stop-name').value;
+            const latitude = parseFloat(document.getElementById('latitude').value);
+            const longitude = parseFloat(document.getElementById('longitude').value);
+            const yandexMapUrl = document.getElementById('yandex-map-url').value;
+            
+            if (!name || !latitude || !longitude) {
+                alert('Заполните все обязательные поля');
+                return;
+            }
+            
+            if (zones.length === 0) {
+                alert('Выделите хотя бы одну зону остановки');
+                return;
+            }
+            
+            if (!selectedCamera) {
+                alert('Выберите камеру');
+                return;
+            }
+            
+            try {
+                const stopData = {
+                    name: name,
+                    latitude: latitude,
+                    longitude: longitude,
+                    camera_id: selectedCamera.id,
+                    yandex_map_url: yandexMapUrl || null,
+                    stop_zone_coords: zones[0].coords, // Используем первую зону
+                    original_resolution: {
+                        width: canvas.width,
+                        height: canvas.height
+                    },
+                    is_active: true
+                };
+                
+                const response = await fetch(`${API_BASE}/admin/stops`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(stopData)
+                });
+                
+                if (response.ok) {
+                    const stop = await response.json();
+                    alert(`Остановка "${stop.name}" успешно создана!`);
+                    
+                    // Очистка формы
+                    document.getElementById('stop-name').value = '';
+                    document.getElementById('latitude').value = '';
+                    document.getElementById('longitude').value = '';
+                    document.getElementById('yandex-map-url').value = '';
+                    zones = [];
+                    updateZonesDisplay();
+                    redrawCanvas();
+                } else {
+                    const error = await response.json();
+                    alert(`Ошибка: ${error.detail || 'Не удалось сохранить остановку'}`);
+                }
+            } catch (error) {
+                console.error('Ошибка сохранения:', error);
+                alert('Ошибка при сохранении остановки');
+            }
+        }
+    </script>
+</body>
+</html>
+

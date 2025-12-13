@@ -20,27 +20,126 @@ router = APIRouter()
 
 # Конфигурация камер с сайта stream.is74.ru
 # Используется HD качество для лучшего распознавания номеров автобусов
+# Правильный формат RTSP: rtsp://cdn.cams.is74.ru:8554?uuid=UUID&quality=hd (БЕЗ /stream)
 IS74_CAMERAS = {
     "camera1": {
         "name": "250-летия Челябинска - Академика Макеева",
         "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=ab7346d3-b64c-4754-a02a-96f01fd2a2fa&quality=hd",
-        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=ab7346d3-b64c-4754-a02a-96f01fd2a2fa&quality=main",  # Резервный вариант
+        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=ab7346d3-b64c-4754-a02a-96f01fd2a2fa&quality=main",
         "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=ab7346d3-b64c-4754-a02a-96f01fd2a2fa",
         "uuid": "ab7346d3-b64c-4754-a02a-96f01fd2a2fa"
     },
     "camera2": {
         "name": "250-летия Челябинска - Салавата Юлаева",
         "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=0cff55c4-ba25-4976-bd39-276fcbdb054a&quality=hd",
-        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=0cff55c4-ba25-4976-bd39-276fcbdb054a&quality=main",  # Резервный вариант
+        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=0cff55c4-ba25-4976-bd39-276fcbdb054a&quality=main",
         "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=0cff55c4-ba25-4976-bd39-276fcbdb054a",
         "uuid": "0cff55c4-ba25-4976-bd39-276fcbdb054a"
     },
     "camera3": {
         "name": "Академика Королёва - Университетская Набережная",
         "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=57164ea3-c4fa-45ae-b315-79544770eb36&quality=hd",
-        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=57164ea3-c4fa-45ae-b315-79544770eb36&quality=main",  # Резервный вариант
+        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=57164ea3-c4fa-45ae-b315-79544770eb36&quality=main",
         "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=57164ea3-c4fa-45ae-b315-79544770eb36",
         "uuid": "57164ea3-c4fa-45ae-b315-79544770eb36"
+    },
+    "camera4": {
+        "name": "Артиллерийская - 1й Пятилетки",
+        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=16ee1359-be80-461d-a277-26e2f8c0ab03&quality=hd",
+        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=16ee1359-be80-461d-a277-26e2f8c0ab03&quality=main",
+        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=16ee1359-be80-461d-a277-26e2f8c0ab03",
+        "uuid": "16ee1359-be80-461d-a277-26e2f8c0ab03"
+    },
+    "camera5": {
+        "name": "Бейвеля - Краснопольский проспект",
+        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=683366ee-ad7f-4edb-a181-2c4bb15e78a0&quality=hd",
+        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=683366ee-ad7f-4edb-a181-2c4bb15e78a0&quality=main",
+        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=683366ee-ad7f-4edb-a181-2c4bb15e78a0",
+        "uuid": "683366ee-ad7f-4edb-a181-2c4bb15e78a0"
+    },
+    "camera6": {
+        "name": "Бейвеля - Скульптора Головницкого",
+        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=30bb3006-25af-44be-9a27-3e3ec3e178f2&quality=hd",
+        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=30bb3006-25af-44be-9a27-3e3ec3e178f2&quality=main",
+        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=30bb3006-25af-44be-9a27-3e3ec3e178f2",
+        "uuid": "30bb3006-25af-44be-9a27-3e3ec3e178f2"
+    },
+    "camera7": {
+        "name": "Блюхера - Курчатова",
+        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=9fbcab7f-4ab8-459f-b23b-b082489f2ea7&quality=hd",
+        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=9fbcab7f-4ab8-459f-b23b-b082489f2ea7&quality=main",
+        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=9fbcab7f-4ab8-459f-b23b-b082489f2ea7",
+        "uuid": "9fbcab7f-4ab8-459f-b23b-b082489f2ea7"
+    },
+    "camera8": {
+        "name": "Братьев Кашириных - 40 лет Победы",
+        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=646a8bb7-dd24-4a70-94fd-65fede465c30&quality=hd",
+        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=646a8bb7-dd24-4a70-94fd-65fede465c30&quality=main",
+        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=646a8bb7-dd24-4a70-94fd-65fede465c30",
+        "uuid": "646a8bb7-dd24-4a70-94fd-65fede465c30"
+    },
+    "camera9": {
+        "name": "Братьев Кашириных - Академика Королева",
+        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=1f3563e8-d978-4caf-a0bc-b1932aa99ba4&quality=hd",
+        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=1f3563e8-d978-4caf-a0bc-b1932aa99ba4&quality=main",
+        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=1f3563e8-d978-4caf-a0bc-b1932aa99ba4",
+        "uuid": "1f3563e8-d978-4caf-a0bc-b1932aa99ba4"
+    },
+    "camera10": {
+        "name": "Братьев Кашириных - Каслинская",
+        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=ecd5dec1-e571-4a9c-9ace-ae7fbbabd05f&quality=hd",
+        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=ecd5dec1-e571-4a9c-9ace-ae7fbbabd05f&quality=main",
+        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=ecd5dec1-e571-4a9c-9ace-ae7fbbabd05f",
+        "uuid": "ecd5dec1-e571-4a9c-9ace-ae7fbbabd05f"
+    },
+    "camera11": {
+        "name": "Братьев Кашириных - Косарева",
+        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=9fa656c8-14fc-44fd-a5de-f4027aafe5ca&quality=hd",
+        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=9fa656c8-14fc-44fd-a5de-f4027aafe5ca&quality=main",
+        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=9fa656c8-14fc-44fd-a5de-f4027aafe5ca",
+        "uuid": "9fa656c8-14fc-44fd-a5de-f4027aafe5ca"
+    },
+    "camera12": {
+        "name": "Братьев Кашириных - Салавата Юлаева",
+        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=f0674d33-27ad-474b-adb9-94a7629b9989&quality=hd",
+        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=f0674d33-27ad-474b-adb9-94a7629b9989&quality=main",
+        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=f0674d33-27ad-474b-adb9-94a7629b9989",
+        "uuid": "f0674d33-27ad-474b-adb9-94a7629b9989"
+    },
+    "camera13": {
+        "name": "Бульвар Славы",
+        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=5ee19d52-94b2-4bb7-94a0-14bbc7e4f181&quality=hd",
+        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=5ee19d52-94b2-4bb7-94a0-14bbc7e4f181&quality=main",
+        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=5ee19d52-94b2-4bb7-94a0-14bbc7e4f181",
+        "uuid": "5ee19d52-94b2-4bb7-94a0-14bbc7e4f181"
+    },
+    "camera14": {
+        "name": "Воровского - Курчатова",
+        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=f205cf9d-a922-4a06-b5d5-46b0acf078cb&quality=hd",
+        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=f205cf9d-a922-4a06-b5d5-46b0acf078cb&quality=main",
+        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=f205cf9d-a922-4a06-b5d5-46b0acf078cb",
+        "uuid": "f205cf9d-a922-4a06-b5d5-46b0acf078cb"
+    },
+    "camera15": {
+        "name": "Воровского - Сони Кривой",
+        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=4ea52ccb-ddbb-4789-b563-cec04a5b1d67&quality=hd",
+        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=4ea52ccb-ddbb-4789-b563-cec04a5b1d67&quality=main",
+        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=4ea52ccb-ddbb-4789-b563-cec04a5b1d67",
+        "uuid": "4ea52ccb-ddbb-4789-b563-cec04a5b1d67"
+    },
+    "camera16": {
+        "name": "Гагарина - Дзержинского",
+        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=e30b6791-df24-485e-90cb-4e987ef336d2&quality=hd",
+        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=e30b6791-df24-485e-90cb-4e987ef336d2&quality=main",
+        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=e30b6791-df24-485e-90cb-4e987ef336d2",
+        "uuid": "e30b6791-df24-485e-90cb-4e987ef336d2"
+    },
+    "camera17": {
+        "name": "Гагарина - Руставели",
+        "rtsp": "rtsp://cdn.cams.is74.ru:8554?uuid=7f3d95d0-39c4-4ff4-ac5a-07649eeca6e6&quality=hd",
+        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554?uuid=7f3d95d0-39c4-4ff4-ac5a-07649eeca6e6&quality=main",
+        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=7f3d95d0-39c4-4ff4-ac5a-07649eeca6e6",
+        "uuid": "7f3d95d0-39c4-4ff4-ac5a-07649eeca6e6"
     }
 }
 
@@ -254,8 +353,7 @@ async def process_video_stream_websocket(websocket: WebSocket):
             await asyncio.sleep(0.001)  # Небольшая задержка для разделения сообщений
             await websocket.send_json({
                 "people_count": len(detections['people']),
-                "buses_count": len(detections['buses']),
-                "cars_count": len(detections.get('cars', []))
+                "buses_count": len(detections['buses'])
             })
             
     except WebSocketDisconnect:
@@ -339,30 +437,43 @@ async def camera_stream_websocket(websocket: WebSocket, camera_id: str, with_det
     
     camera = IS74_CAMERAS[camera_id]
     # Пытаемся использовать HD качество, если недоступно - переключаемся на main
-    stream_url = camera["rtsp"]  # HD качество
+    # Пробуем разные форматы RTSP URL (проверено: правильный формат без /stream)
+    stream_urls = [
+        f"rtsp://cdn.cams.is74.ru:8554?uuid={camera['uuid']}&quality=hd",  # Правильный формат (без /stream)
+        f"rtsp://cdn.cams.is74.ru:8554?uuid={camera['uuid']}&quality=main",  # Main качество
+        camera["rtsp"],  # HD качество с /stream (резерв)
+        camera.get("rtsp_main"),  # Main качество с /stream (резерв)
+    ]
+    
+    cap = None
+    stream_url = None
     
     try:
-        # Открываем видеопоток в HD качестве
-        cap = cv2.VideoCapture(stream_url)
-        
-        # Настройка для лучшего качества
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Минимальный буфер для снижения задержки
-        
-        if not cap.isOpened():
-            # Пытаемся использовать резервный поток (main качество)
-            if "rtsp_main" in camera:
-                stream_url = camera["rtsp_main"]
-                cap = cv2.VideoCapture(stream_url)
-                await websocket.send_json({
-                    "warning": f"HD поток недоступен, используется стандартное качество для камеры {camera_id}"
-                })
+        # Пробуем разные форматы URL
+        for url in stream_urls:
+            if not url:
+                continue
+            test_cap = cv2.VideoCapture(url)
+            test_cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Минимальный буфер для снижения задержки
             
-            if not cap.isOpened():
-                await websocket.send_json({
-                    "error": f"Не удалось открыть видеопоток камеры {camera_id}"
-                })
-                await websocket.close()
-                return
+            # Даем время на подключение
+            await asyncio.sleep(0.5)
+            
+            if test_cap.isOpened():
+                # Проверяем, что поток действительно работает
+                ret, test_frame = test_cap.read()
+                if ret and test_frame is not None:
+                    cap = test_cap
+                    stream_url = url
+                    break
+            test_cap.release()
+        
+        if not cap or not cap.isOpened():
+            await websocket.send_json({
+                "error": f"Не удалось открыть видеопоток камеры {camera_id}. Попробованы все форматы URL."
+            })
+            await websocket.close()
+            return
         
         await websocket.send_json({
             "status": "connected",
@@ -414,7 +525,7 @@ async def camera_stream_websocket(websocket: WebSocket, camera_id: str, with_det
                 display_counts = smoothed_counts
             else:
                 result_frame = frame
-                display_counts = {"people": 0, "buses": 0, "cars": 0}
+                display_counts = {"people": 0, "buses": 0}
             
             # Кодируем кадр с высоким качеством для HD потоков
             # Используем качество 90 для лучшей детализации (важно для распознавания номеров)
@@ -429,11 +540,9 @@ async def camera_stream_websocket(websocket: WebSocket, camera_id: str, with_det
                 await websocket.send_json({
                     "people_count": display_counts['people'],
                     "buses_count": display_counts['buses'],
-                    "cars_count": display_counts['cars'],
                     "frame_number": frame_count,
                     "raw_people": len(detections['people']),  # Сырые значения для отладки
-                    "raw_buses": len(detections['buses']),
-                    "raw_cars": len(detections.get('cars', []))
+                    "raw_buses": len(detections['buses'])
                 })
             
             # Небольшая задержка для стабильности (уже контролируется через frame_interval)
@@ -448,7 +557,7 @@ async def camera_stream_websocket(websocket: WebSocket, camera_id: str, with_det
         except:
             pass
     finally:
-        if 'cap' in locals():
+        if 'cap' in locals() and cap is not None:
             cap.release()
         try:
             await websocket.close()
@@ -471,21 +580,36 @@ async def get_camera_snapshot(camera_id: str, with_detection: bool = False):
     camera = IS74_CAMERAS[camera_id]
     
     try:
-        # Получаем снимок через API
-        snapshot_url = f"https://cdn.cams.is74.ru/snapshot?uuid={camera['uuid']}"
+        # Получаем снимок через API (пробуем разные варианты URL)
+        snapshot_urls = [
+            f"https://cdn.cams.is74.ru/snapshot?uuid={camera['uuid']}&lossy=1",
+            f"https://cdn.cams.is74.ru/snapshot?uuid={camera['uuid']}",
+            f"https://cdn.cams.is74.ru/snapshot/{camera['uuid']}",
+        ]
         
         import httpx
+        frame = None
+        last_error = None
+        
         async with httpx.AsyncClient() as client:
-            response = await client.get(snapshot_url, timeout=10.0)
-            if response.status_code != 200:
-                raise HTTPException(status_code=500, detail="Не удалось получить снимок")
-            
-            # Декодируем изображение
-            nparr = np.frombuffer(response.content, np.uint8)
-            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            for snapshot_url in snapshot_urls:
+                try:
+                    response = await client.get(snapshot_url, timeout=10.0, follow_redirects=True)
+                    if response.status_code == 200:
+                        # Декодируем изображение
+                        nparr = np.frombuffer(response.content, np.uint8)
+                        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                        if frame is not None:
+                            break
+                except Exception as e:
+                    last_error = str(e)
+                    continue
             
             if frame is None:
-                raise HTTPException(status_code=500, detail="Не удалось декодировать изображение")
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"Не удалось получить снимок с камеры {camera_id}. Попробованы все варианты URL. Последняя ошибка: {last_error}"
+                )
             
             detections = None
             if with_detection:
@@ -496,7 +620,7 @@ async def get_camera_snapshot(camera_id: str, with_detection: bool = False):
                 result_frame = frame
             
             # Кодируем результат
-            _, encoded_img = cv2.imencode('.jpg', result_frame)
+            _, encoded_img = cv2.imencode('.jpg', result_frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
             img_bytes = encoded_img.tobytes()
             
             headers = {
@@ -512,6 +636,8 @@ async def get_camera_snapshot(camera_id: str, with_detection: bool = False):
                 headers=headers
             )
             
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка получения снимка: {str(e)}")
 

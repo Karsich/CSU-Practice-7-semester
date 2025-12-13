@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from api import routes as routes_module
-from api import passengers, analytics, admin, cv
+from api import passengers, analytics, admin, cv, yandex_maps
 from core.config import settings
 from core.database import engine, Base
 
@@ -34,6 +34,7 @@ app.include_router(passengers.router, prefix="/api/v1/passengers", tags=["Passen
 app.include_router(analytics.router, prefix="/api/v1/analytics", tags=["Analytics"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
 app.include_router(cv.router, prefix="/api/v1/cv", tags=["Computer Vision"])
+app.include_router(yandex_maps.router, prefix="/api/v1/yandex", tags=["Yandex Maps"])
 
 
 @app.get("/")

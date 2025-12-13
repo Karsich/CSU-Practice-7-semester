@@ -284,10 +284,6 @@
                 <div class="fullscreen-stat-label">Автобусы</div>
                 <div class="fullscreen-stat-value" id="fullscreen-buses">0</div>
             </div>
-            <div class="fullscreen-stat-item">
-                <div class="fullscreen-stat-label">Автомобили</div>
-                <div class="fullscreen-stat-value" id="fullscreen-cars">0</div>
-            </div>
         </div>
     </div>
     
@@ -358,20 +354,15 @@
                         <div class="stat-label">Автобусы</div>
                         <div class="stat-value" id="buses-${camera.id}">0</div>
                     </div>
-                    <div class="stat-item">
-                        <div class="stat-label">Автомобили</div>
-                        <div class="stat-value" id="cars-${camera.id}">0</div>
-                    </div>
                 </div>
                 <div class="status disconnected" id="status-${camera.id}">Отключено</div>
             `;
             
             container.appendChild(card);
             
-            // Инициализация canvas
+            // Инициализация canvas - будет установлено при получении первого кадра
             const canvas = document.getElementById(`canvas-${camera.id}`);
-            canvas.width = 640;
-            canvas.height = 360;
+            // Размеры будут установлены автоматически при получении первого кадра
         }
         
         // Запуск потока
@@ -394,7 +385,13 @@
                     // Это изображение
                     const img = new Image();
                     img.onload = () => {
+                        // Устанавливаем оригинальное разрешение при первом кадре
+                        if (canvas.width !== img.width || canvas.height !== img.height) {
+                            canvas.width = img.width;
+                            canvas.height = img.height;
+                        }
                         ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        // Рисуем с оригинальным разрешением
                         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                     };
                     img.src = URL.createObjectURL(event.data);
@@ -409,7 +406,6 @@
                         
                         document.getElementById(`people-${cameraId}`).textContent = data.people_count || 0;
                         document.getElementById(`buses-${cameraId}`).textContent = data.buses_count || 0;
-                        document.getElementById(`cars-${cameraId}`).textContent = data.cars_count || 0;
                     } catch (e) {
                         // Игнорируем ошибки парсинга
                     }
@@ -548,11 +544,9 @@
             
             const people = document.getElementById(`people-${fullscreenCameraId}`).textContent;
             const buses = document.getElementById(`buses-${fullscreenCameraId}`).textContent;
-            const cars = document.getElementById(`cars-${fullscreenCameraId}`).textContent;
             
             document.getElementById('fullscreen-people').textContent = people;
             document.getElementById('fullscreen-buses').textContent = buses;
-            document.getElementById('fullscreen-cars').textContent = cars;
         }
         
         // Закрытие по Escape

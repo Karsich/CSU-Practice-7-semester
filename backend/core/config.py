@@ -2,7 +2,7 @@
 Конфигурация приложения
 """
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Optional
 
 
 class Settings(BaseSettings):
@@ -25,12 +25,15 @@ class Settings(BaseSettings):
     CORS_ORIGINS: List[str] = ["*"]
     
     # YOLO Model
-    YOLO_MODEL_PATH: str = "yolov8s.pt"  # Будет использоваться предобученная модель
-    CONFIDENCE_THRESHOLD: float = 0.2
+    YOLO_MODEL_PATH: str = "yolov8m.pt"  # Будет использоваться предобученная модель
+    CONFIDENCE_THRESHOLD: float = 0.1
     
     # Video Processing
     FRAME_SKIP: int = 5  # Обрабатывать каждый 5-й кадр
     MAX_FRAMES_PER_SECOND: int = 2
+    
+    # Yandex Maps API
+    YANDEX_MAPS_API_KEY: Optional[str] = None
     
     class Config:
         env_file = ".env"
@@ -38,4 +41,5 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
 
