@@ -2,6 +2,7 @@
 Celery приложение для асинхронных задач
 """
 from celery import Celery
+from celery.schedules import crontab
 from core.config import settings
 
 celery_app = Celery(
@@ -16,6 +17,12 @@ celery_app.conf.update(
     result_serializer='json',
     timezone='UTC',
     enable_utc=True,
+    beat_schedule={
+        'monitor-all-stops-every-minute': {
+            'task': 'monitor_all_stops_passive',
+            'schedule': 60.0,  # Каждую минуту
+        },
+    },
 )
 
 

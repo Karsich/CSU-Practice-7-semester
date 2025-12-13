@@ -365,13 +365,13 @@
             // Размеры будут установлены автоматически при получении первого кадра
         }
         
-        // Запуск потока
-        function startStream(cameraId, withDetection) {
-            stopStream(cameraId); // Останавливаем предыдущий поток если есть
-            
-            const ws = new WebSocket(`ws://localhost:8000/api/v1/cv/camera/${cameraId}/stream-ws?with_detection=${withDetection}`);
+        // Настройка WebSocket потока (общая функция)
+        function setupWebSocketStream(cameraId, ws, withDetection) {
             const canvas = document.getElementById(`canvas-${cameraId}`);
             const ctx = canvas.getContext('2d');
+            
+            // Храним последние метаданные для синхронизации
+            let lastMetadata = { people_count: 0, buses_count: 0 };
             
             updateStatus(cameraId, 'connecting', 'Подключение...');
             
@@ -393,10 +393,19 @@
                         ctx.clearRect(0, 0, canvas.width, canvas.height);
                         // Рисуем с оригинальным разрешением
                         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        
+                        // Обновляем статистику сразу после отрисовки кадра (синхронизация)
+                        document.getElementById(`people-${cameraId}`).textContent = lastMetadata.people_count;
+                        document.getElementById(`buses-${cameraId}`).textContent = lastMetadata.buses_count;
+                        
+                        // Обновляем полноэкранную статистику если нужно
+                        if (fullscreenCameraId === cameraId) {
+                            updateFullscreenStats();
+                        }
                     };
                     img.src = URL.createObjectURL(event.data);
                 } else {
-                    // Это JSON с метаданными
+                    // Это JSON с метаданными - сохраняем для следующего кадра
                     try {
                         const data = JSON.parse(event.data);
                         if (data.status) {
@@ -404,8 +413,11 @@
                             return;
                         }
                         
-                        document.getElementById(`people-${cameraId}`).textContent = data.people_count || 0;
-                        document.getElementById(`buses-${cameraId}`).textContent = data.buses_count || 0;
+                        // Сохраняем метаданные для синхронизации с кадром
+                        lastMetadata = {
+                            people_count: data.people_count || 0,
+                            buses_count: data.buses_count || 0
+                        };
                     } catch (e) {
                         // Игнорируем ошибки парсинга
                     }
@@ -423,6 +435,15 @@
                     updateStatus(cameraId, 'disconnected', 'Отключено');
                 }
             };
+        }
+        
+        // Запуск потока
+        function startStream(cameraId, withDetection) {
+            stopStream(cameraId); // Останавливаем предыдущий поток если есть
+            
+            // Используем пассивный режим (1 FPS) для обычного просмотра
+            const ws = new WebSocket(`ws://localhost:8000/api/v1/cv/camera/${cameraId}/stream-ws?with_detection=${withDetection}&fps_mode=passive`);
+            setupWebSocketStream(cameraId, ws, withDetection);
         }
         
         // Остановка потока
@@ -487,6 +508,15 @@
             const statusEl = document.getElementById(`status-${cameraId}`);
             fullscreenWithDetection = statusEl && statusEl.textContent.includes('детекция');
             
+            // Перезапускаем поток с активным режимом (8 FPS)
+            const wasDetected = fullscreenWithDetection;
+            stopStream(cameraId);
+            setTimeout(() => {
+                // Запускаем с активным режимом для fullscreen (8 FPS)
+                const ws = new WebSocket(`ws://localhost:8000/api/v1/cv/camera/${cameraId}/stream-ws?with_detection=${wasDetected}&fps_mode=active`);
+                setupWebSocketStream(cameraId, ws, wasDetected);
+            }, 100);
+            
             // Настраиваем canvas для полноэкранного режима
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
@@ -507,9 +537,21 @@
         
         function exitFullscreen() {
             const overlay = document.getElementById('fullscreen-overlay');
+            const cameraId = fullscreenCameraId;
             overlay.classList.remove('active');
+            
+            // Перезапускаем поток с пассивным режимом (1 FPS)
+            if (cameraId && cameras[cameraId]) {
+                const wasDetected = fullscreenWithDetection;
+                stopStream(cameraId);
+                setTimeout(() => {
+                    startStream(cameraId, wasDetected);
+                }, 100);
+            }
+            
             fullscreenCameraId = null;
         }
+        
         
         function startFullscreenUpdate() {
             if (!fullscreenCameraId) return;
@@ -542,11 +584,14 @@
         function updateFullscreenStats() {
             if (!fullscreenCameraId) return;
             
-            const people = document.getElementById(`people-${fullscreenCameraId}`).textContent;
-            const buses = document.getElementById(`buses-${fullscreenCameraId}`).textContent;
+            // Получаем актуальные значения из карточки камеры
+            const peopleEl = document.getElementById(`people-${fullscreenCameraId}`);
+            const busesEl = document.getElementById(`buses-${fullscreenCameraId}`);
             
-            document.getElementById('fullscreen-people').textContent = people;
-            document.getElementById('fullscreen-buses').textContent = buses;
+            if (peopleEl && busesEl) {
+                document.getElementById('fullscreen-people').textContent = peopleEl.textContent;
+                document.getElementById('fullscreen-buses').textContent = busesEl.textContent;
+            }
         }
         
         // Закрытие по Escape

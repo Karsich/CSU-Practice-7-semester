@@ -9,3 +9,4 @@ Base.metadata.create_all(bind=engine)
 print("Таблицы пересозданы успешно!")
 
 
+

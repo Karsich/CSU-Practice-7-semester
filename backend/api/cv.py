@@ -15,57 +15,9 @@ from typing import Optional
 from services.cv_service import cv_service
 from services.video_processor import video_processor
 from tasks.video_tasks import process_video_frame_task
+from core.cameras import IS74_CAMERAS
 
 router = APIRouter()
-
-# Конфигурация камер с сайта stream.is74.ru
-# Используется HD качество для лучшего распознавания номеров автобусов
-# Правильный формат RTSP: rtsp://cdn.cams.is74.ru:8554/stream?uuid=UUID&quality=hd (С /stream)
-# Выбранные рабочие камеры:
-IS74_CAMERAS = {
-    "camera1": {
-        "name": "Чичерина - Братьев Кашириных",
-        "rtsp": "rtsp://cdn.cams.is74.ru:8554/stream?uuid=1f3563e8-d978-4caf-a0bc-b1932aa99ba4&quality=hd",
-        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554/stream?uuid=1f3563e8-d978-4caf-a0bc-b1932aa99ba4&quality=main",
-        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=1f3563e8-d978-4caf-a0bc-b1932aa99ba4",
-        "uuid": "1f3563e8-d978-4caf-a0bc-b1932aa99ba4"
-    },
-    "camera2": {
-        "name": "Академика Королёва - Университетская Набережная",
-        "rtsp": "rtsp://cdn.cams.is74.ru:8554/stream?uuid=57164ea3-c4fa-45ae-b315-79544770eb36&quality=hd",
-        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554/stream?uuid=57164ea3-c4fa-45ae-b315-79544770eb36&quality=main",
-        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=57164ea3-c4fa-45ae-b315-79544770eb36",
-        "uuid": "57164ea3-c4fa-45ae-b315-79544770eb36"
-    },
-    "camera3": {
-        "name": "250-летия Челябинска - Салавата Юлаева",
-        "rtsp": "rtsp://cdn.cams.is74.ru:8554/stream?uuid=0cff55c4-ba25-4976-bd39-276fcbdb054a&quality=hd",
-        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554/stream?uuid=0cff55c4-ba25-4976-bd39-276fcbdb054a&quality=main",
-        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=0cff55c4-ba25-4976-bd39-276fcbdb054a",
-        "uuid": "0cff55c4-ba25-4976-bd39-276fcbdb054a"
-    },
-    "camera4": {
-        "name": "Бейвеля - Скульптора Головницкого",
-        "rtsp": "rtsp://cdn.cams.is74.ru:8554/stream?uuid=30bb3006-25af-44be-9a27-3e3ec3e178f2&quality=hd",
-        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554/stream?uuid=30bb3006-25af-44be-9a27-3e3ec3e178f2&quality=main",
-        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=30bb3006-25af-44be-9a27-3e3ec3e178f2",
-        "uuid": "30bb3006-25af-44be-9a27-3e3ec3e178f2"
-    },
-    "camera5": {
-        "name": "Комсомольский - Красного Урала",
-        "rtsp": "rtsp://cdn.cams.is74.ru:8554/stream?uuid=5ee19d52-94b2-4bb7-94a0-14bbc7e4f181&quality=hd",
-        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554/stream?uuid=5ee19d52-94b2-4bb7-94a0-14bbc7e4f181&quality=main",
-        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=5ee19d52-94b2-4bb7-94a0-14bbc7e4f181",
-        "uuid": "5ee19d52-94b2-4bb7-94a0-14bbc7e4f181"
-    },
-    "camera6": {
-        "name": "Копейское ш. - Енисейская",
-        "rtsp": "rtsp://cdn.cams.is74.ru:8554/stream?uuid=7f3d95d0-39c4-4ff4-ac5a-07649eeca6e6&quality=hd",
-        "rtsp_main": "rtsp://cdn.cams.is74.ru:8554/stream?uuid=7f3d95d0-39c4-4ff4-ac5a-07649eeca6e6&quality=main",
-        "hls": "https://cdn.cams.is74.ru/hls/playlists/multivariant.m3u8?uuid=7f3d95d0-39c4-4ff4-ac5a-07649eeca6e6",
-        "uuid": "7f3d95d0-39c4-4ff4-ac5a-07649eeca6e6"
-    }
-}
 
 
 @router.post("/detect")
@@ -256,18 +208,25 @@ async def get_camera_stream(camera_id: str, with_detection: bool = False):
 
 
 @router.websocket("/camera/{camera_id}/stream-ws")
-async def camera_stream_websocket(websocket: WebSocket, camera_id: str, with_detection: bool = True):
+async def camera_stream_websocket(websocket: WebSocket, camera_id: str):
     """
     WebSocket поток с камеры с возможностью детекции
     Использует HD качество для лучшего распознавания номеров автобусов
     
     Args:
         camera_id: ID камеры (camera1, camera2, camera3)
-        with_detection: Включить детекцию объектов
+        Query параметры:
+        - with_detection: Включить детекцию объектов (по умолчанию True)
+        - fps_mode: Режим FPS - "active" (8 FPS) или "passive" (1 FPS, по умолчанию)
     """
     if camera_id not in IS74_CAMERAS:
         await websocket.close(code=1008, reason="Камера не найдена")
         return
+    
+    # Получаем query параметры
+    query_params = dict(websocket.query_params)
+    with_detection = query_params.get('with_detection', 'true').lower() == 'true'
+    fps_mode = query_params.get('fps_mode', 'passive').lower()
     
     await websocket.accept()
     
@@ -336,8 +295,14 @@ async def camera_stream_websocket(websocket: WebSocket, camera_id: str, with_det
         
         frame_count = 0
         last_processing_time = asyncio.get_event_loop().time()
-        target_fps = 2  # 2 кадра в секунду для синхронизации
-        frame_interval = 1.0 / target_fps  # 0.5 секунды между кадрами
+        
+        # Определяем целевой FPS в зависимости от режима
+        if fps_mode == "active":
+            target_fps = 8  # 8 кадров в секунду для активного просмотра (fullscreen)
+        else:
+            target_fps = 1  # 1 кадр в секунду для пассивного режима
+        
+        frame_interval = 1.0 / target_fps
         
         # Получаем FPS потока для правильной синхронизации
         stream_fps = cap.get(cv2.CAP_PROP_FPS) or 25

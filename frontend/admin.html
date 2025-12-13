@@ -116,10 +116,33 @@
         }
         
         #camera-canvas {
-            width: 100%;
-            height: auto;
+            max-width: 100%;
+            max-height: 100%;
             display: block;
             cursor: crosshair;
+            object-fit: contain;
+            position: relative;
+            z-index: 1;
+            touch-action: none;
+        }
+        
+        .video-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 400px;
+            position: relative;
+        }
+        
+        #zones-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+            display: none; /* Скрываем, так как не используем */
         }
         
         .zone-overlay {
@@ -194,11 +217,16 @@
                     <ol>
                         <li>Выберите камеру</li>
                         <li>Загрузите кадр</li>
-                        <li>Нарисуйте прямоугольник для зоны остановки</li>
+                        <li><strong>Кликайте на изображении</strong> для добавления точек полигона зоны остановки</li>
+                        <li>Двойной клик или кнопка "Завершить зону" замыкают полигон</li>
                         <li>Введите название остановки</li>
-                        <li>Укажите координаты на карте</li>
+                        <li>Вставьте ссылку Яндекс.Карты (координаты извлекутся автоматически)</li>
                         <li>Сохраните остановку</li>
                     </ol>
+                    <p style="margin-top: 10px; color: #1976d2; font-weight: bold;">
+                        💡 Кликайте на изображении, чтобы добавить точки полигона. Двойной клик или кнопка "Завершить" замыкают зону.
+                    </p>
+                    <button class="btn-primary" onclick="finishCurrentZone()" id="finish-zone-btn" style="display: none; width: 100%; margin-top: 10px;">Завершить зону</button>
                 </div>
                 
                 <div class="form-group">
@@ -227,7 +255,8 @@
                 
                 <div class="form-group">
                     <label>Ссылка Яндекс.Карты:</label>
-                    <input type="text" id="yandex-map-url" placeholder="https://yandex.ru/maps/...">
+                    <input type="text" id="yandex-map-url" placeholder="https://yandex.ru/maps/..." onchange="extractCoordinatesFromUrl()">
+                    <small style="color: #666;">Координаты будут извлечены автоматически из URL</small>
                 </div>
                 
                 <div class="zones-list" id="zones-list">
@@ -251,15 +280,39 @@
         let selectedCamera = null;
         let canvas, ctx;
         let isDrawing = false;
-        let startX, startY;
         let currentZone = null;
         let zones = [];
         let originalImage = null;
+        let drawingMode = 'polygon'; // 'polygon' для полигональных зон
         
         // Инициализация
         window.onload = () => {
             canvas = document.getElementById('camera-canvas');
+            if (!canvas) {
+                console.error('Canvas не найден!');
+                return;
+            }
             ctx = canvas.getContext('2d');
+            if (!ctx) {
+                console.error('Не удалось получить контекст canvas!');
+                return;
+            }
+            
+            // Устанавливаем начальный размер canvas
+            canvas.width = 800;
+            canvas.height = 600;
+            canvas.style.width = '100%';
+            canvas.style.height = 'auto';
+            
+            // Рисуем начальное сообщение
+            ctx.fillStyle = '#f0f0f0';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#666';
+            ctx.font = '20px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Выберите камеру и загрузите кадр', canvas.width / 2, canvas.height / 2);
+            
+            console.log('Canvas инициализирован:', canvas.width, 'x', canvas.height);
             loadCameras();
         };
         
@@ -294,111 +347,339 @@
             selectedCamera = cameras.find(c => c.id === cameraId);
             
             try {
+                // Показываем индикатор загрузки
+                canvas.style.opacity = '0.5';
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#666';
+                ctx.font = '20px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('Загрузка...', canvas.width / 2 || 200, canvas.height / 2 || 200);
+                
                 // Получаем снимок с камеры
                 const response = await fetch(`${API_BASE}/cv/camera/${cameraId}/snapshot?with_detection=false`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
                 const blob = await response.blob();
                 
                 const img = new Image();
                 img.onload = () => {
-                    // Устанавливаем оригинальное разрешение
+                    // Сохраняем оригинальное изображение
+                    originalImage = img;
+                    
+                    // Адаптируем canvas под размер контейнера, сохраняя пропорции
+                    const container = canvas.parentElement;
+                    const containerWidth = container.clientWidth;
+                    const containerHeight = container.clientHeight || 600;
+                    
+                    const imgAspect = img.width / img.height;
+                    const containerAspect = containerWidth / containerHeight;
+                    
+                    let displayWidth, displayHeight;
+                    if (imgAspect > containerAspect) {
+                        // Изображение шире
+                        displayWidth = containerWidth;
+                        displayHeight = containerWidth / imgAspect;
+                    } else {
+                        // Изображение выше
+                        displayHeight = containerHeight;
+                        displayWidth = containerHeight * imgAspect;
+                    }
+                    
+                    // Устанавливаем размер canvas для отображения
+                    canvas.style.width = displayWidth + 'px';
+                    canvas.style.height = displayHeight + 'px';
+                    
+                    // Внутренний размер canvas = оригинальное разрешение
                     canvas.width = img.width;
                     canvas.height = img.height;
-                    ctx.drawImage(img, 0, 0);
-                    originalImage = img;
+                    
+                    // Восстанавливаем контекст после изменения размера
+                    ctx = canvas.getContext('2d');
+                    
+                    // Рисуем изображение
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    
+                    // Восстанавливаем прозрачность
+                    canvas.style.opacity = '1';
                     
                     // Очищаем зоны
                     zones = [];
+                    currentZone = null;
+                    isDrawing = false;
                     updateZonesDisplay();
+                    
+                    // Добавляем визуальную подсказку
+                    ctx.fillStyle = 'rgba(102, 126, 234, 0.8)';
+                    ctx.fillRect(10, 10, 300, 40);
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 16px Arial';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('💡 Зажмите и перетащите для выделения зоны', 15, 35);
+                    
+                    // Убираем подсказку через 3 секунды
+                    setTimeout(() => {
+                        if (originalImage) {
+                            redrawCanvas();
+                        }
+                    }, 3000);
+                    
+                    // Перепривязываем события после загрузки изображения
+                    attachCanvasEvents();
+                    
+                    console.log('Изображение загружено:', canvas.width, 'x', canvas.height);
+                    console.log('Размер отображения:', displayWidth, 'x', displayHeight);
+                    console.log('Canvas готов к рисованию');
+                    console.log('Canvas элемент:', canvas);
+                    console.log('Canvas видимый:', canvas.offsetWidth > 0 && canvas.offsetHeight > 0);
+                };
+                img.onerror = (error) => {
+                    console.error('Ошибка загрузки изображения:', error);
+                    canvas.style.opacity = '1';
+                    alert('Не удалось загрузить изображение');
                 };
                 img.src = URL.createObjectURL(blob);
             } catch (error) {
                 console.error('Ошибка загрузки кадра:', error);
-                alert('Не удалось загрузить кадр с камеры');
+                canvas.style.opacity = '1';
+                alert('Не удалось загрузить кадр с камеры: ' + error.message);
             }
         }
         
-        // Обработка рисования зон
-        canvas.addEventListener('mousedown', (e) => {
-            if (!originalImage) return;
-            
-            isDrawing = true;
+        // Получение координат мыши в координатах canvas
+        function getCanvasCoordinates(e) {
             const rect = canvas.getBoundingClientRect();
-            startX = (e.clientX - rect.left) * (canvas.width / rect.width);
-            startY = (e.clientY - rect.top) * (canvas.height / rect.height);
             
-            currentZone = {
-                x1: startX,
-                y1: startY,
-                x2: startX,
-                y2: startY
+            // Проверяем, что rect валиден
+            if (rect.width === 0 || rect.height === 0) {
+                console.warn('Canvas rect имеет нулевой размер:', rect);
+                return { x: 0, y: 0 };
+            }
+            
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            
+            // Поддержка как мыши, так и touch-событий
+            const clientX = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+            const clientY = e.clientY !== undefined ? e.clientY : (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+            
+            const x = (clientX - rect.left) * scaleX;
+            const y = (clientY - rect.top) * scaleY;
+            
+            // Ограничиваем координаты границами canvas
+            const result = {
+                x: Math.max(0, Math.min(x, canvas.width)),
+                y: Math.max(0, Math.min(y, canvas.height))
             };
-        });
-        
-        canvas.addEventListener('mousemove', (e) => {
-            if (!isDrawing || !currentZone) return;
             
-            const rect = canvas.getBoundingClientRect();
-            currentZone.x2 = (e.clientX - rect.left) * (canvas.width / rect.width);
-            currentZone.y2 = (e.clientY - rect.top) * (canvas.height / rect.height);
+            // Отладка только при первом клике
+            if (e.type === 'mousedown') {
+                console.log('getCanvasCoordinates:', {
+                    clientX, clientY,
+                    rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+                    canvasSize: { width: canvas.width, height: canvas.height },
+                    scale: { scaleX, scaleY },
+                    result
+                });
+            }
+            
+            return result;
+        }
+        
+        // Обработка клика для добавления точки полигона
+        function addPointToPolygon(e) {
+            if (!originalImage) {
+                alert('Сначала загрузите кадр с камеры!');
+                return;
+            }
+            
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const coords = getCanvasCoordinates(e);
+            
+            // Если это двойной клик, завершаем зону
+            if (e.detail === 2) {
+                finishCurrentZone();
+                return;
+            }
+            
+            // Если нет текущей зоны, создаем новую
+            if (!currentZone) {
+                currentZone = {
+                    points: [],
+                    name: `Зона ${zones.length + 1}`
+                };
+                isDrawing = true;
+                document.getElementById('finish-zone-btn').style.display = 'block';
+            }
+            
+            // Добавляем точку
+            currentZone.points.push([coords.x, coords.y]);
+            console.log('Точка добавлена:', coords, 'Всего точек:', currentZone.points.length);
             
             redrawCanvas();
-        });
+        }
         
-        canvas.addEventListener('mouseup', () => {
-            if (isDrawing && currentZone) {
-                // Нормализуем координаты
-                const x1 = Math.min(currentZone.x1, currentZone.x2);
-                const y1 = Math.min(currentZone.y1, currentZone.y2);
-                const x2 = Math.max(currentZone.x1, currentZone.x2);
-                const y2 = Math.max(currentZone.y1, currentZone.y2);
-                
-                if (Math.abs(x2 - x1) > 10 && Math.abs(y2 - y1) > 10) {
-                    zones.push({
-                        coords: [[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
-                        name: `Зона ${zones.length + 1}`
-                    });
+        // Завершение текущей зоны
+        function finishCurrentZone() {
+            if (!currentZone || currentZone.points.length < 3) {
+                if (currentZone && currentZone.points.length < 3) {
+                    alert('Полигон должен содержать минимум 3 точки');
                 }
-                
-                currentZone = null;
-                isDrawing = false;
-                redrawCanvas();
-                updateZonesDisplay();
+                return;
             }
-        });
+            
+            // Замыкаем полигон (добавляем первую точку в конец)
+            if (currentZone.points.length > 0) {
+                const firstPoint = currentZone.points[0];
+                const lastPoint = currentZone.points[currentZone.points.length - 1];
+                // Если последняя точка не совпадает с первой, добавляем её
+                if (Math.abs(firstPoint[0] - lastPoint[0]) > 1 || Math.abs(firstPoint[1] - lastPoint[1]) > 1) {
+                    currentZone.points.push([firstPoint[0], firstPoint[1]]);
+                }
+            }
+            
+            zones.push({
+                coords: currentZone.points,
+                name: currentZone.name
+            });
+            
+            console.log('Зона завершена:', zones[zones.length - 1]);
+            
+            currentZone = null;
+            isDrawing = false;
+            document.getElementById('finish-zone-btn').style.display = 'none';
+            redrawCanvas();
+            updateZonesDisplay();
+        }
+        
+        // Обработка движения мыши для предпросмотра
+        function drawMove(e) {
+            if (!isDrawing || !currentZone) {
+                return;
+            }
+            
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const coords = getCanvasCoordinates(e);
+            redrawCanvas();
+            
+            // Рисуем линию от последней точки к текущей позиции мыши
+            if (currentZone.points.length > 0) {
+                ctx.strokeStyle = '#667eea';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                const lastPoint = currentZone.points[currentZone.points.length - 1];
+                ctx.beginPath();
+                ctx.moveTo(lastPoint[0], lastPoint[1]);
+                ctx.lineTo(coords.x, coords.y);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+        }
+        
+        // Обработка двойного клика
+        function handleDoubleClick(e) {
+            e.preventDefault();
+            finishCurrentZone();
+        }
+        
+        // Функция для привязки событий
+        function attachCanvasEvents() {
+            // Удаляем старые обработчики, если они есть
+            canvas.removeEventListener('click', addPointToPolygon);
+            canvas.removeEventListener('dblclick', handleDoubleClick);
+            canvas.removeEventListener('mousemove', drawMove);
+            
+            // Привязываем новые обработчики
+            canvas.addEventListener('click', addPointToPolygon, { passive: false });
+            canvas.addEventListener('dblclick', handleDoubleClick, { passive: false });
+            canvas.addEventListener('mousemove', drawMove, { passive: false });
+            
+            // Предотвращаем контекстное меню на canvas
+            canvas.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+            }, { passive: false });
+            
+            console.log('События canvas привязаны');
+        }
+        
+        // Привязываем события при инициализации
+        attachCanvasEvents();
         
         // Перерисовка canvas
         function redrawCanvas() {
-            if (!originalImage) return;
+            if (!originalImage) {
+                console.warn('redrawCanvas: нет originalImage');
+                return;
+            }
+            
+            // Убеждаемся, что контекст валиден
+            if (!ctx) {
+                console.warn('redrawCanvas: нет контекста, пересоздаём');
+                ctx = canvas.getContext('2d');
+            }
             
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(originalImage, 0, 0);
+            
+            // Рисуем изображение
+            try {
+                ctx.drawImage(originalImage, 0, 0, canvas.width, canvas.height);
+            } catch (error) {
+                console.error('Ошибка при рисовании изображения:', error);
+                return;
+            }
             
             // Рисуем сохраненные зоны
             zones.forEach((zone, index) => {
                 drawZone(zone.coords, zone.name, index);
             });
             
-            // Рисуем текущую зону
-            if (currentZone) {
-                const x1 = Math.min(currentZone.x1, currentZone.x2);
-                const y1 = Math.min(currentZone.y1, currentZone.y2);
-                const x2 = Math.max(currentZone.x1, currentZone.x2);
-                const y2 = Math.max(currentZone.y1, currentZone.y2);
-                
-                ctx.strokeStyle = '#667eea';
-                ctx.lineWidth = 2;
-                ctx.setLineDash([5, 5]);
-                ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-                ctx.setLineDash([]);
+            // Рисуем текущую зону (при рисовании полигона)
+            if (currentZone && currentZone.points) {
+                if (currentZone.points.length > 0) {
+                    // Рисуем точки
+                    ctx.fillStyle = '#667eea';
+                    currentZone.points.forEach((point, index) => {
+                        ctx.beginPath();
+                        ctx.arc(point[0], point[1], 5, 0, 2 * Math.PI);
+                        ctx.fill();
+                        
+                        // Номер точки
+                        ctx.fillStyle = 'white';
+                        ctx.font = '12px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(index + 1, point[0], point[1] - 8);
+                        ctx.fillStyle = '#667eea';
+                    });
+                    
+                    // Рисуем линии между точками
+                    if (currentZone.points.length > 1) {
+                        ctx.strokeStyle = '#667eea';
+                        ctx.lineWidth = 2;
+                        ctx.setLineDash([5, 5]);
+                        ctx.beginPath();
+                        ctx.moveTo(currentZone.points[0][0], currentZone.points[0][1]);
+                        for (let i = 1; i < currentZone.points.length; i++) {
+                            ctx.lineTo(currentZone.points[i][0], currentZone.points[i][1]);
+                        }
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                    }
+                }
             }
         }
         
-        // Рисование зоны
+        // Рисование зоны (полигон)
         function drawZone(coords, name, index) {
+            if (!coords || coords.length < 3) return;
+            
             ctx.strokeStyle = '#667eea';
-            ctx.fillStyle = 'rgba(102, 126, 234, 0.1)';
+            ctx.fillStyle = 'rgba(102, 126, 234, 0.2)';
             ctx.lineWidth = 2;
-            ctx.setLineDash([5, 5]);
+            ctx.setLineDash([]);
             
             ctx.beginPath();
             ctx.moveTo(coords[0][0], coords[0][1]);
@@ -408,12 +689,47 @@
             ctx.closePath();
             ctx.fill();
             ctx.stroke();
-            ctx.setLineDash([]);
+            
+            // Рисуем точки полигона
+            ctx.fillStyle = '#667eea';
+            coords.forEach((point, i) => {
+                ctx.beginPath();
+                ctx.arc(point[0], point[1], 4, 0, 2 * Math.PI);
+                ctx.fill();
+            });
             
             // Подпись
             ctx.fillStyle = '#667eea';
-            ctx.font = '14px Arial';
-            ctx.fillText(name, coords[0][0], coords[0][1] - 5);
+            ctx.font = 'bold 14px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText(name, coords[0][0] + 5, coords[0][1] - 5);
+        }
+        
+        // Извлечение координат из URL Яндекс.Карт
+        function extractCoordinatesFromUrl() {
+            const url = document.getElementById('yandex-map-url').value;
+            if (!url) return;
+            
+            try {
+                // Парсим URL вида: https://yandex.ru/maps/56/chelyabinsk/stops/stop__9900259/?ll=61.441128%2C55.138736&tab=overview&z=18.44
+                const urlObj = new URL(url);
+                const llParam = urlObj.searchParams.get('ll');
+                
+                if (llParam) {
+                    const [longitude, latitude] = llParam.split(',').map(parseFloat);
+                    if (!isNaN(latitude) && !isNaN(longitude)) {
+                        document.getElementById('latitude').value = latitude;
+                        document.getElementById('longitude').value = longitude;
+                        console.log('Координаты извлечены из URL:', latitude, longitude);
+                        return;
+                    }
+                }
+                
+                // Альтернативный формат: может быть в пути или другом месте
+                console.log('Не удалось извлечь координаты из URL');
+            } catch (error) {
+                console.error('Ошибка при извлечении координат:', error);
+            }
         }
         
         // Обновление списка зон

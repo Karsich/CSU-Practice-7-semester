@@ -40,6 +40,7 @@ services:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/transport_db
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
     depends_on:
       postgres:
         condition: service_healthy
@@ -58,12 +59,30 @@ services:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/transport_db
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
     depends_on:
       - postgres
       - redis
     volumes:
       - ./backend:/app
     command: celery -A tasks.celery_app worker --loglevel=info
+  
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: transport_celery_beat
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/transport_db
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./backend:/app
+    command: celery -A tasks.celery_app beat --loglevel=info
 
   nginx:
     image: nginx:alpine

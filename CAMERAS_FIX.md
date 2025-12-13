@@ -66,3 +66,4 @@ rtsp://cdn.cams.is74.ru:8554?uuid=UUID&quality=hd
 4. Проверить работу snapshot в админской панели
 
 
+

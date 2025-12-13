@@ -22,13 +22,9 @@
         <!-- Панель для пассажиров -->
         <div id="passenger-panel" class="panel active">
             <div class="route-selector">
-                <label for="route-select">Выберите маршрут:</label>
-                <select id="route-select">
-                    <option value="">Загрузка...</option>
-                </select>
                 <label for="stop-select">Выберите остановку:</label>
                 <select id="stop-select">
-                    <option value="">Сначала выберите маршрут</option>
+                    <option value="">Загрузка...</option>
                 </select>
             </div>
 
@@ -40,7 +36,6 @@
                         <span id="status-text">Загрузка...</span>
                     </div>
                     <div class="load-details">
-                        <p><strong>Маршрут:</strong> <span id="route-number"></span></p>
                         <p><strong>Остановка:</strong> <span id="stop-name"></span></p>
                         <p><strong>Людей на остановке:</strong> <span id="people-count"></span></p>
                         <p><strong>Загруженность:</strong> <span id="load-percentage"></span>%</p>
@@ -64,10 +59,6 @@
         <div id="analytics-panel" class="panel">
             <h2>Аналитика загруженности</h2>
             <div class="analytics-controls">
-                <label for="analytics-route">Маршрут:</label>
-                <select id="analytics-route">
-                    <option value="">Загрузка...</option>
-                </select>
                 <label for="analytics-stop">Остановка:</label>
                 <select id="analytics-stop">
                     <option value="">Все остановки</option>
@@ -97,6 +88,7 @@
     <script src="app.js"></script>
 </body>
 </html>
+
 
 
 

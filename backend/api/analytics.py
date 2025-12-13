@@ -16,8 +16,7 @@ router = APIRouter()
 @router.get("/load-statistics/{stop_id}")
 async def get_load_statistics(
     stop_id: int,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
+    days: int = 7,
     db: Session = Depends(get_db)
 ):
     """Получение статистики загруженности остановки за период"""
@@ -25,10 +24,8 @@ async def get_load_statistics(
     if not stop:
         raise HTTPException(status_code=404, detail="Остановка не найдена")
     
-    if not start_date:
-        start_date = datetime.now() - timedelta(days=7)
-    if not end_date:
-        end_date = datetime.now()
+    start_date = datetime.now() - timedelta(days=days)
+    end_date = datetime.now()
     
     query = db.query(LoadData).filter(
         and_(
@@ -69,8 +66,8 @@ async def get_load_statistics(
     return {
         'stop_id': stop_id,
         'stop_name': stop.name,
-        'start_date': start_date,
-        'end_date': end_date,
+        'start_date': start_date.isoformat(),
+        'end_date': end_date.isoformat(),
         'statistics': statistics
     }
 
@@ -114,5 +111,43 @@ async def get_peak_hours(
         'stop_name': stop.name,
         'period_days': days,
         'peak_hours': peak_hours
+    }
+
+
+@router.get("/people-history/{stop_id}")
+async def get_people_history(
+    stop_id: int,
+    days: int = 7,
+    db: Session = Depends(get_db)
+):
+    """Получение истории количества людей на остановке по времени"""
+    stop = db.query(Stop).filter(Stop.id == stop_id).first()
+    if not stop:
+        raise HTTPException(status_code=404, detail="Остановка не найдена")
+    
+    start_date = datetime.now() - timedelta(days=days)
+    
+    query = db.query(LoadData).filter(
+        and_(
+            LoadData.stop_id == stop_id,
+            LoadData.timestamp >= start_date
+        )
+    ).order_by(LoadData.timestamp.asc())
+    
+    data = query.all()
+    
+    history = []
+    for record in data:
+        history.append({
+            'timestamp': record.timestamp.isoformat(),
+            'people_count': record.people_count,
+            'buses_detected': record.buses_detected
+        })
+    
+    return {
+        'stop_id': stop_id,
+        'stop_name': stop.name,
+        'period_days': days,
+        'history': history
     }
 
