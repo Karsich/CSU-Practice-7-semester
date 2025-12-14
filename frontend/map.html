@@ -111,7 +111,26 @@
             loadStops();
         });
         
-        // Загрузка списка остановок
+        // ---
+// Обновляем people/buses после загрузки zone-snapshot img (HEAD-запрос к headers)
+async function updateZoneStats(stopId) {
+    const peopleEl = document.getElementById(`people-${stopId}`);
+    const busesEl = document.getElementById(`buses-${stopId}`);
+    const img = document.getElementById(`zone-img-${stopId}`);
+    if (!img) return;
+    try {
+        const metaRes = await fetch(`${API_BASE}/cv/stop/${stopId}/zone-snapshot-meta?with_detection=true`);
+        const meta = await metaRes.json();
+        img.src = 'http://localhost:8000' + meta.zone_img_url;
+        if (peopleEl) peopleEl.textContent = meta.people_count ?? '-';
+        if (busesEl) busesEl.textContent = meta.buses_count ?? '-';
+    } catch {
+        if (peopleEl) peopleEl.textContent = '-';
+        if (busesEl) busesEl.textContent = '-';
+    }
+}
+
+// Загрузка списка остановок
         async function loadStops() {
             try {
                 const response = await fetch(`${API_BASE}/passengers/stops`);
@@ -121,6 +140,8 @@
                 stops.forEach(stop => {
                     if (stop.latitude && stop.longitude) {
                         addStopMarker(stop);
+                        // Для каждого маркера установить обработку обновления статистики после рендера zone-img
+                        setTimeout(()=>updateZoneStats(stop.id), 800);
                     }
                 });
             } catch (error) {
@@ -170,15 +191,15 @@
                         <p><strong>Координаты:</strong> ${stop.latitude.toFixed(6)}, ${stop.longitude.toFixed(6)}</p>
                     </div>
                     <div class="video-preview" id="preview-${stop.id}">
-                        <div class="loading">Загрузка видео...</div>
+                        ${stop.camera_id ? `<img id="zone-img-${stop.id}" src="" style="width:100%;border-radius:5px;" alt="Зона остановки">` : '<div class="loading">Нет камеры</div>'}
                     </div>
                     <div class="stats" id="stats-${stop.id}">
                         <div class="stat-item">
-                            <div class="stat-value" id="people-${stop.id}">-</div>
+                            <div class="stat-value" id="people-${stop.id}">…</div>
                             <div class="stat-label">Люди</div>
                         </div>
                         <div class="stat-item">
-                            <div class="stat-value" id="buses-${stop.id}">-</div>
+                            <div class="stat-value" id="buses-${stop.id}">…</div>
                             <div class="stat-label">Автобусы</div>
                         </div>
                     </div>

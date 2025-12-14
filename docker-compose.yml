@@ -36,6 +36,8 @@ services:
     container_name: transport_api_gateway
     ports:
       - "8000:8000"
+    env_file:
+      - ./backend/.env
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/transport_db
       - REDIS_URL=redis://redis:6379/0
@@ -55,6 +57,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: transport_celery_worker
+    env_file:
+      - ./backend/.env
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/transport_db
       - REDIS_URL=redis://redis:6379/0
@@ -72,6 +76,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: transport_celery_beat
+    env_file:
+      - ./backend/.env
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/transport_db
       - REDIS_URL=redis://redis:6379/0

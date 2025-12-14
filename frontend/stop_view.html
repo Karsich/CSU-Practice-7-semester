@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вид остановки</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 40px auto;
+            background: white;
+            border-radius: 18px;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.12);
+            padding: 32px;
+        }
+        h1 {
+            margin-bottom: 14px;
+        }
+        .meta {
+            color: #666;
+            margin-bottom: 18px;
+        }
+        .main {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+        .view-section, .info-section {
+            padding: 12px 0 0 0;
+        }
+        .yandex-map {
+            margin: 0 0 20px 0;
+            width: 100%;
+            min-height: 300px;
+            border-radius: 8px;
+            border: 1px solid #eaeaea;
+        }
+        .snapshot {
+            display: block;
+            max-width: 100%;
+            border-radius: 5px;
+            margin-bottom: 16px;
+        }
+        .stats {
+            display: flex;
+            gap: 30px;
+            margin-bottom: 15px;
+        }
+        .stat {
+            background: #f5f5f5;
+            border-radius: 8px;
+            padding: 12px 18px;
+            flex: 1;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #667eea;
+        }
+        .stat-label {
+            color: #888;
+            font-size: 12px;
+        }
+        .actions {
+            margin-top: 20px;
+            display: flex;
+            gap: 15px;
+        }
+        .actions button, .actions a {
+            padding: 8px 18px;
+            font-size: 15px;
+            border-radius: 7px;
+            border: none;
+            text-decoration: none;
+            background: #667eea;
+            color: white;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .actions button:hover, .actions a:hover {
+            background: #4b5bb7;
+        }
+        .error {
+            color: #b32f2f;
+            margin: 30px 0;
+        }
+        .selector {
+            margin: 0 0 32px 0;
+        }
+        .selector label {
+            font-size: 16px;
+        }
+        .selector select {
+            padding: 7px 12px;
+            font-size: 16px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+        }
+        .selector input[type="text"] {
+            padding: 7px 12px;
+            font-size: 16px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            margin-left: 15px;
+            min-width: 160px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div id="main-content" class="main">
+        <div class="meta"><a href="map.html">← На карту</a></div>
+        <div id="stop-selector" class="selector"></div>
+        <div id="stop-info"></div>
+    </div>
+</div>
+<script>
+const API_BASE = 'http://localhost:8000/api/v1';
+let allStops = [],
+    stopsLoaded = false; // для фильтрации/поиска
+
+// Показываем селектор выбора остановки
+async function loadStopSelector() {
+    try {
+        const res = await fetch(`${API_BASE}/passengers/stops`);
+        allStops = await res.json();
+        stopsLoaded = true;
+        renderStopSelector();
+    } catch (e) {
+        showError('Ошибка загрузки списка остановок: ' + e);
+    }
+}
+
+function renderStopSelector(filter = "") {
+    const selector = document.getElementById('stop-selector');
+    let filtered = allStops;
+    if (filter) {
+        filtered = allStops.filter(stop => stop.name.toLowerCase().includes(filter.toLowerCase()));
+    }
+    selector.innerHTML = `
+      <label for="stop_select">Остановка:</label>
+      <select id="stop_select">
+        <option value="">Выберите остановку</option>
+        ${filtered.map(stop => `<option value="${stop.id}">${stop.name}</option>`).join('')}
+      </select>
+      <input type="text" id="stop_search" placeholder="Поиск по названию" value="${filter}">
+    `;
+    document.getElementById('stop_select').addEventListener('change', function(e) {
+        const stopId = this.value;
+        if (stopId) {
+            loadStopView(stopId);
+        } else {
+            document.getElementById('stop-info').innerHTML = "";
+        }
+    });
+    document.getElementById('stop_search').addEventListener('input', function() {
+        renderStopSelector(this.value);
+    });
+}
+
+// Получить и показать подробный вид остановки по id
+async function loadStopView(stopId) {
+    try {
+        const stopRes = await fetch(`${API_BASE}/stops/${stopId}`);
+        const stop = await stopRes.json();
+        if (!stop.id) {
+            showError('Остановка не найдена.');
+            return;
+        }
+        // Получаем статистику
+        const statRes = await fetch(`${API_BASE}/passengers/current-load/${stopId}`);
+        const stat = await statRes.json();
+
+        const el = document.getElementById('stop-info');
+        el.innerHTML = `
+            <h1>${stop.name}</h1>
+            <div class="meta">Координаты: ${stop.latitude.toFixed(6)}, ${stop.longitude.toFixed(6)}</div>
+            <div class="view-section">
+                ${stop.yandex_map_url ? `<iframe class="yandex-map" src='${stop.yandex_map_url}&tab=overview' frameborder='0'></iframe>` : ""}
+                ${stop.camera_id ? `<img class="snapshot" id="zone-snapshot-img" src="" loading="lazy" alt="Снимок остановки зоны остановки">` : "<div class='error'>Нет фото остановки</div>"}
+            </div>
+            <div class="stats">
+                <div class="stat"><div class="stat-value" id="people-count">…</div><div class="stat-label">Людей</div></div>
+                <div class="stat"><div class="stat-value" id="buses-count">…</div><div class="stat-label">Автобусов</div></div>
+            </div>
+            <div class="actions">
+                ${stop.yandex_map_url ? `<a href="${stop.yandex_map_url}" target="_blank">Открыть в Яндекс.Картах</a>` : ""}
+                <button onclick="closeStopView()">Выбрать другую остановку</button>
+            </div>
+        `;
+                // Теперь используем JSON/meta конечную точку для корректного получения чисел людей и автобусов
+        if (stop.camera_id) {
+            try {
+                const metaRes = await fetch(`${API_BASE}/cv/stop/${stop.id}/zone-snapshot-meta?with_detection=true`);
+                const meta = await metaRes.json();
+                document.getElementById('zone-snapshot-img').src = 'http://localhost:8000' + meta.zone_img_url;
+                document.getElementById('people-count').textContent = meta.people_count;
+                document.getElementById('buses-count').textContent = meta.buses_count;
+            } catch(e) {
+                document.getElementById('people-count').textContent = '-';
+                document.getElementById('buses-count').textContent = '-';
+            }
+        }
+    } catch (e) {
+        showError('Ошибка загрузки данных остановки: ' + e);
+    }
+}
+
+function closeStopView() {
+    document.getElementById('stop-info').innerHTML = "";
+    document.getElementById('stop_select').value = "";
+}
+
+function showError(msg) {
+    document.getElementById('stop-info').innerHTML = `<div class='error'>${msg}</div>`;
+}
+
+// Инициализация
+loadStopSelector();
+</script>
+</body>
+</html>

@@ -379,6 +379,157 @@ async def camera_stream_websocket(websocket: WebSocket, camera_id: str):
 
 @router.get("/camera/{camera_id}/snapshot")
 async def get_camera_snapshot(camera_id: str, with_detection: bool = False):
+    '''
+    Получение снимка с камеры (стандартная функция)
+    '''
+    # ... как было ...
+
+@router.get("/stop/{stop_id}/zone-snapshot-meta")
+async def get_stop_zone_snapshot_meta(stop_id: int, with_detection: bool = True):
+    '''
+    Возвращает ссылку на изображение + people_count и buses_count (единый JSON для фронта)
+    '''
+    from core.models import Stop
+    from core.database import SessionLocal
+    db = SessionLocal()
+    stop = db.query(Stop).filter(Stop.id == stop_id).first()
+    if not stop:
+        db.close()
+        raise HTTPException(status_code=404, detail="Остановка не найдена")
+    if not stop.camera_id or stop.camera_id not in IS74_CAMERAS:
+        db.close()
+        raise HTTPException(status_code=404, detail="Камера не найдена")
+    if not stop.stop_zone_coords:
+        db.close()
+        raise HTTPException(status_code=404, detail="Не задана зона остановки")
+    camera = IS74_CAMERAS[stop.camera_id]
+    try:
+        import httpx
+        import time
+        snapshot_urls = [
+            f"https://cdn.cams.is74.ru/snapshot?uuid={camera['uuid']}&lossy=1",
+            f"https://cdn.cams.is74.ru/snapshot?uuid={camera['uuid']}",
+            f"https://cdn.cams.is74.ru/snapshot/{camera['uuid']}",
+        ]
+        frame = None
+        last_error = None
+        with httpx.Client(timeout=10.0) as client:
+            for snapshot_url in snapshot_urls:
+                try:
+                    response = client.get(snapshot_url, follow_redirects=True)
+                    if response.status_code == 200:
+                        nparr = np.frombuffer(response.content, np.uint8)
+                        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                        if frame is not None:
+                            break
+                except Exception:
+                    continue
+        if frame is None:
+            db.close()
+            raise HTTPException(status_code=500, detail=f"Не удалось получить снимок с камеры {stop.camera_id}")
+        # Получаем ROI зоны
+        coords = stop.stop_zone_coords
+        if not coords or len(coords) < 2:
+            h, w = frame.shape[:2]
+            x1, y1, x2, y2 = 0, 0, w, h
+        else:
+            x_coords = [c[0] for c in coords]
+            y_coords = [c[1] for c in coords]
+            x1, y1 = int(min(x_coords)), int(min(y_coords))
+            x2, y2 = int(max(x_coords)), int(max(y_coords))
+        zone_frame = frame[y1:y2, x1:x2]
+        detections = cv_service.detect_objects(zone_frame) if with_detection else None
+        people_count = len(detections.get('people', [])) if detections else 0
+        buses_count = len(detections.get('buses', [])) if detections else 0
+        # URL для изображения делаем с уникальным nocache=секунды, чтобы избежать кеша браузера
+        url = f"/api/v1/cv/stop/{stop_id}/zone-snapshot?with_detection=true&nocache={int(time.time())}"
+        db.close()
+        return {
+            "zone_img_url": url,
+            "people_count": people_count,
+            "buses_count": buses_count
+        }
+    except Exception as e:
+        db.close()
+        raise HTTPException(status_code=500, detail=f"Ошибка snapshot-meta: {str(e)}")
+
+@router.get("/stop/{stop_id}/zone-snapshot")
+async def get_stop_zone_snapshot(stop_id: int, with_detection: bool = True):
+    '''
+    Возвращает изображение только зоны остановки, пропущенной через детекцию
+    '''
+    from core.models import Stop
+    from core.database import SessionLocal
+    db = SessionLocal()
+    stop = db.query(Stop).filter(Stop.id == stop_id).first()
+    if not stop:
+        db.close()
+        raise HTTPException(status_code=404, detail="Остановка не найдена")
+    if not stop.camera_id or stop.camera_id not in IS74_CAMERAS:
+        db.close()
+        raise HTTPException(status_code=404, detail="Камера не найдена")
+    if not stop.stop_zone_coords:
+        db.close()
+        raise HTTPException(status_code=404, detail="Не задана зона остановки")
+    camera = IS74_CAMERAS[stop.camera_id]
+    try:
+        import httpx
+        snapshot_urls = [
+            f"https://cdn.cams.is74.ru/snapshot?uuid={camera['uuid']}&lossy=1",
+            f"https://cdn.cams.is74.ru/snapshot?uuid={camera['uuid']}",
+            f"https://cdn.cams.is74.ru/snapshot/{camera['uuid']}",
+        ]
+        frame = None
+        last_error = None
+        with httpx.Client(timeout=10.0) as client:
+            for snapshot_url in snapshot_urls:
+                try:
+                    response = client.get(snapshot_url, follow_redirects=True)
+                    if response.status_code == 200:
+                        nparr = np.frombuffer(response.content, np.uint8)
+                        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                        if frame is not None:
+                            break
+                except Exception:
+                    continue
+        if frame is None:
+            db.close()
+            raise HTTPException(status_code=500, detail=f"Не удалось получить снимок с камеры {stop.camera_id}")
+        # Получаем ROI зоны
+        coords = stop.stop_zone_coords
+        if not coords or len(coords) < 2:
+            h, w = frame.shape[:2]
+            x1, y1, x2, y2 = 0, 0, w, h
+        else:
+            x_coords = [c[0] for c in coords]
+            y_coords = [c[1] for c in coords]
+            x1, y1 = int(min(x_coords)), int(min(y_coords))
+            x2, y2 = int(max(x_coords)), int(max(y_coords))
+        zone_frame = frame[y1:y2, x1:x2]
+        result_frame = zone_frame
+        detections = None
+        if with_detection:
+            detections = cv_service.detect_objects(zone_frame)
+            result_frame = cv_service.draw_detections(zone_frame, detections)
+        _, encoded_img = cv2.imencode('.jpg', result_frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+        img_bytes = encoded_img.tobytes()
+        headers = {}
+        if with_detection and detections:
+            headers["X-People-Count"] = str(len(detections.get('people', [])))
+            headers["X-Buses-Count"] = str(len(detections.get('buses', [])))
+        db.close()
+        return StreamingResponse(
+            BytesIO(img_bytes),
+            media_type="image/jpeg",
+            headers=headers
+        )
+    except HTTPException:
+        db.close()
+        raise
+    except Exception as e:
+        db.close()
+        raise HTTPException(status_code=500, detail=f"Ошибка получения снимка зоны: {str(e)}")
+
     """
     Получение снимка с камеры
     
