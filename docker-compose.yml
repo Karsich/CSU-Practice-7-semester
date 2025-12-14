@@ -88,7 +88,7 @@ services:
       - redis
     volumes:
       - ./backend:/app
-    command: celery -A tasks.celery_app beat --loglevel=info
+    command: sh -c "rm -f /app/celerybeat-schedule* && celery -A tasks.celery_app beat --loglevel=info"
 
   nginx:
     image: nginx:alpine

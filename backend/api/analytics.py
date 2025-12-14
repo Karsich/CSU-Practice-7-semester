@@ -37,6 +37,17 @@ async def get_load_statistics(
     
     data = query.all()
     
+    # Если данных нет, возвращаем пустой список
+    if not data:
+        return {
+            'stop_id': stop_id,
+            'stop_name': stop.name,
+            'start_date': start_date.isoformat(),
+            'end_date': end_date.isoformat(),
+            'statistics': [],
+            'message': 'Нет данных за указанный период'
+        }
+    
     # Агрегация по часам
     hourly_stats = {}
     for record in data:
@@ -98,6 +109,16 @@ async def get_peak_hours(
     
     results = query.group_by('hour').order_by(func.avg(LoadData.people_count).desc()).all()
     
+    # Если данных нет, возвращаем пустой список
+    if not results:
+        return {
+            'stop_id': stop_id,
+            'stop_name': stop.name,
+            'period_days': days,
+            'peak_hours': [],
+            'message': 'Нет данных за указанный период'
+        }
+    
     peak_hours = []
     for hour, avg_people, avg_buses in results:
         peak_hours.append({
@@ -135,6 +156,16 @@ async def get_people_history(
     ).order_by(LoadData.timestamp.asc())
     
     data = query.all()
+    
+    # Если данных нет, возвращаем пустой список
+    if not data:
+        return {
+            'stop_id': stop_id,
+            'stop_name': stop.name,
+            'period_days': days,
+            'history': [],
+            'message': 'Нет данных за указанный период'
+        }
     
     history = []
     for record in data:

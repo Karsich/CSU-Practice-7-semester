@@ -205,7 +205,16 @@ async function loadAnalytics() {
         const statsResponse = await fetch(
             `${API_BASE}/analytics/load-statistics/${stopId}?days=${period}`
         );
+        if (!statsResponse.ok) {
+            throw new Error(`HTTP error! status: ${statsResponse.status}`);
+        }
         const stats = await statsResponse.json();
+        
+        // Проверяем, есть ли данные
+        if (!stats.statistics || stats.statistics.length === 0) {
+            alert(stats.message || 'Нет данных за указанный период. Убедитесь, что задачи мониторинга запущены и собирают данные.');
+            return;
+        }
         
         // Отображение графика
         displayAnalyticsChart(stats.statistics);
@@ -214,14 +223,17 @@ async function loadAnalytics() {
         const peakResponse = await fetch(
             `${API_BASE}/analytics/peak-hours/${stopId}?days=${period}`
         );
+        if (!peakResponse.ok) {
+            throw new Error(`HTTP error! status: ${peakResponse.status}`);
+        }
         const peakData = await peakResponse.json();
         
-        displayPeakHours(peakData.peak_hours);
+        displayPeakHours(peakData.peak_hours || []);
         
         document.getElementById('analytics-results').classList.remove('hidden');
     } catch (error) {
         console.error('Ошибка загрузки аналитики:', error);
-        alert('Не удалось загрузить аналитику');
+        alert('Не удалось загрузить аналитику: ' + error.message);
     }
 }
 
@@ -239,17 +251,24 @@ function displayAnalyticsChart(statistics) {
             labels: statistics.map(s => new Date(s.timestamp).toLocaleString('ru-RU')),
             datasets: [
                 {
-                    label: 'Средняя загруженность (%)',
-                    data: statistics.map(s => s.avg_load),
-                    borderColor: 'rgb(255, 99, 132)',
-                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                    label: 'Среднее количество людей',
+                    data: statistics.map(s => s.avg_people || 0),
+                    borderColor: 'rgb(54, 162, 235)',
+                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
                     yAxisID: 'y'
                 },
                 {
-                    label: 'Среднее количество людей',
-                    data: statistics.map(s => s.total_people / (s.count || 1)),
-                    borderColor: 'rgb(54, 162, 235)',
-                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                    label: 'Общее количество людей',
+                    data: statistics.map(s => s.total_people || 0),
+                    borderColor: 'rgb(255, 99, 132)',
+                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                    yAxisID: 'y1'
+                },
+                {
+                    label: 'Автобусы',
+                    data: statistics.map(s => s.total_buses || 0),
+                    borderColor: 'rgb(75, 192, 192)',
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
                     yAxisID: 'y1'
                 }
             ]
@@ -290,8 +309,8 @@ function displayPeakHours(peakHours) {
                 <strong>${hour.hour}:00</strong>
             </div>
             <div>
-                Загруженность: ${hour.average_load_percentage.toFixed(1)}% | 
-                Людей: ${hour.average_people_count.toFixed(1)}
+                Людей: ${hour.average_people_count.toFixed(1)} | 
+                Автобусов: ${hour.average_buses_count.toFixed(1)}
             </div>
         </div>
     `).join('');

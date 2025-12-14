@@ -25,5 +25,16 @@ celery_app.conf.update(
     },
 )
 
+# Импортируем задачи для их регистрации в Celery
+# Это гарантирует, что задачи будут доступны при запуске worker
+try:
+    from tasks import monitoring_tasks  # noqa: F401
+    from tasks import video_tasks  # noqa: F401
+except ImportError as e:
+    # Если зависимости не установлены, задачи не будут работать
+    # но это не должно ломать инициализацию Celery
+    import warnings
+    warnings.warn(f"Не удалось импортировать задачи: {e}")
+
 
 
