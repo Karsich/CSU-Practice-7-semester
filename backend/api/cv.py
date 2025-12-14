@@ -382,7 +382,78 @@ async def get_camera_snapshot(camera_id: str, with_detection: bool = False):
     '''
     Получение снимка с камеры (стандартная функция)
     '''
-    # ... как было ...
+        """
+    Получение снимка с камеры
+    
+    Args:
+        camera_id: ID камеры
+        with_detection: Включить детекцию объектов
+    """
+    if camera_id not in IS74_CAMERAS:
+        raise HTTPException(status_code=404, detail="Камера не найдена")
+    
+    camera = IS74_CAMERAS[camera_id]
+    
+    try:
+        # Получаем снимок через API (пробуем разные варианты URL)
+        snapshot_urls = [
+            f"https://cdn.cams.is74.ru/snapshot?uuid={camera['uuid']}&lossy=1",
+            f"https://cdn.cams.is74.ru/snapshot?uuid={camera['uuid']}",
+            f"https://cdn.cams.is74.ru/snapshot/{camera['uuid']}",
+        ]
+        
+        import httpx
+        frame = None
+        last_error = None
+        
+        async with httpx.AsyncClient() as client:
+            for snapshot_url in snapshot_urls:
+                try:
+                    response = await client.get(snapshot_url, timeout=10.0, follow_redirects=True)
+                    if response.status_code == 200:
+                        # Декодируем изображение
+                        nparr = np.frombuffer(response.content, np.uint8)
+                        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                        if frame is not None:
+                            break
+                except Exception as e:
+                    last_error = str(e)
+                    continue
+            
+            if frame is None:
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"Не удалось получить снимок с камеры {camera_id}. Попробованы все варианты URL. Последняя ошибка: {last_error}"
+                )
+            
+            detections = None
+            if with_detection:
+                # Обрабатываем с детекцией
+                detections = cv_service.detect_objects(frame)
+                result_frame = cv_service.draw_detections(frame, detections)
+            else:
+                result_frame = frame
+            
+            # Кодируем результат
+            _, encoded_img = cv2.imencode('.jpg', result_frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+            img_bytes = encoded_img.tobytes()
+            
+            # Заголовки без кириллицы (избегаем проблем с кодировкой)
+            headers = {}
+            if with_detection and detections:
+                headers["X-People-Count"] = str(len(detections.get('people', [])))
+                headers["X-Buses-Count"] = str(len(detections.get('buses', [])))
+            
+            return StreamingResponse(
+                BytesIO(img_bytes),
+                media_type="image/jpeg",
+                headers=headers
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка получения снимка: {str(e)}")
 
 @router.get("/stop/{stop_id}/zone-snapshot-meta")
 async def get_stop_zone_snapshot_meta(stop_id: int, with_detection: bool = True):
