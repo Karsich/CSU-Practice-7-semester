@@ -111,17 +111,23 @@ class CVService:
             if boxes is not None:
                 for box in boxes:
                     cls = int(box.cls[0])
-                    conf = float(box.conf[0])
+                    conf = float(box.conf[0])  # Явное преобразование во float
                     x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                    
+                    # Явное преобразование координат во float
+                    x1 = float(x1)
+                    y1 = float(y1)
+                    x2 = float(x2)
+                    y2 = float(y2)
                     
                     # Фильтрация по размеру для улучшения детекции маленьких объектов
                     box_width = x2 - x1
                     box_height = y2 - y1
-                    box_area = box_width * box_height
+                    box_area = float(box_width * box_height)  # Явное преобразование во float
                     frame_area = h * w
                     
                     detection = {
-                        'bbox': [float(x1), float(y1), float(x2), float(y2)],
+                        'bbox': [x1, y1, x2, y2],  # Координаты уже преобразованы во float
                         'confidence': conf,
                         'class_id': cls,
                         'area': box_area

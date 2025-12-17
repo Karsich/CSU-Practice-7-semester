@@ -379,10 +379,7 @@ async def camera_stream_websocket(websocket: WebSocket, camera_id: str):
 
 @router.get("/camera/{camera_id}/snapshot")
 async def get_camera_snapshot(camera_id: str, with_detection: bool = False):
-    '''
-    Получение снимка с камеры (стандартная функция)
-    '''
-        """
+    """
     Получение снимка с камеры
     
     Args:

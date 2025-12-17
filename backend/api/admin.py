@@ -160,7 +160,7 @@ async def get_monitoring_status(db: Session = Depends(get_db)):
         if data.stop_id not in stops_data:
             stops_data[data.stop_id] = []
         stops_data[data.stop_id].append({
-            "timestamp": data.timestamp.isoformat(),
+            "timestamp": data.timestamp.isoformat() + 5,
             "people_count": data.people_count,
             "buses_detected": data.buses_detected
         })
