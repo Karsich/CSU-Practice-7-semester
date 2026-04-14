@@ -5,6 +5,7 @@ const API_BASE = 'http://localhost:8000/api/v1';
 let currentStop = null;
 let forecastChart = null;
 let analyticsChart = null;
+let analyticsForecastChart = null;
 
 // Инициализация приложения
 document.addEventListener('DOMContentLoaded', () => {
@@ -202,9 +203,7 @@ async function loadAnalytics() {
     
     try {
         // Загрузка статистики
-        const statsResponse = await fetch(
-            `${API_BASE}/analytics/load-statistics/${stopId}?days=${period}`
-        );
+        const statsResponse = await fetch(`${API_BASE}/analytics/load-statistics/${stopId}?days=${period}`);
         if (!statsResponse.ok) {
             throw new Error(`HTTP error! status: ${statsResponse.status}`);
         }
@@ -220,15 +219,16 @@ async function loadAnalytics() {
         displayAnalyticsChart(stats.statistics);
         
         // Загрузка часов пик
-        const peakResponse = await fetch(
-            `${API_BASE}/analytics/peak-hours/${stopId}?days=${period}`
-        );
+        const peakResponse = await fetch(`${API_BASE}/analytics/peak-hours/${stopId}?days=${period}`);
         if (!peakResponse.ok) {
             throw new Error(`HTTP error! status: ${peakResponse.status}`);
         }
         const peakData = await peakResponse.json();
         
         displayPeakHours(peakData.peak_hours || []);
+
+        // Прогноз Prophet для аналитической панели не должен ломать остальную аналитику
+        await loadAnalyticsForecast(stopId);
         
         document.getElementById('analytics-results').classList.remove('hidden');
     } catch (error) {
@@ -314,6 +314,97 @@ function displayPeakHours(peakHours) {
             </div>
         </div>
     `).join('');
+}
+
+async function loadAnalyticsForecast(stopId) {
+    const messageEl = document.getElementById('analytics-forecast-message');
+
+    try {
+        const response = await fetch(`${API_BASE}/analytics/forecast/${stopId}?hours=24`);
+        if (!response.ok) {
+            const errorBody = await response.json().catch(() => ({}));
+            throw new Error(errorBody.detail || `HTTP error! status: ${response.status}`);
+        }
+
+        const forecast = await response.json();
+        if (!forecast.length) {
+            showAnalyticsForecastMessage('Недостаточно данных для построения прогноза.');
+            destroyAnalyticsForecastChart();
+            return;
+        }
+
+        hideAnalyticsForecastMessage();
+        displayAnalyticsForecastChart(forecast);
+    } catch (error) {
+        console.error('Ошибка загрузки прогноза аналитики:', error);
+        showAnalyticsForecastMessage(`Прогноз недоступен: ${error.message}`);
+        destroyAnalyticsForecastChart();
+    }
+
+    function showAnalyticsForecastMessage(message) {
+        messageEl.textContent = message;
+        messageEl.classList.remove('hidden');
+    }
+
+    function hideAnalyticsForecastMessage() {
+        messageEl.textContent = '';
+        messageEl.classList.add('hidden');
+    }
+}
+
+function displayAnalyticsForecastChart(forecast) {
+    const ctx = document.getElementById('analytics-forecast-chart');
+
+    if (analyticsForecastChart) {
+        analyticsForecastChart.destroy();
+    }
+
+    analyticsForecastChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: forecast.map(item => new Date(item.forecast_time).toLocaleString('ru-RU')),
+            datasets: [
+                {
+                    label: 'Прогноз количества людей',
+                    data: forecast.map(item => item.predicted_people_count),
+                    borderColor: 'rgb(153, 102, 255)',
+                    backgroundColor: 'rgba(153, 102, 255, 0.2)',
+                    tension: 0.2
+                },
+                {
+                    label: 'Нижняя граница интервала',
+                    data: forecast.map(item => item.confidence_interval_lower),
+                    borderColor: 'rgba(153, 102, 255, 0.4)',
+                    borderDash: [6, 4],
+                    pointRadius: 0,
+                    tension: 0.2
+                },
+                {
+                    label: 'Верхняя граница интервала',
+                    data: forecast.map(item => item.confidence_interval_upper),
+                    borderColor: 'rgba(153, 102, 255, 0.4)',
+                    borderDash: [6, 4],
+                    pointRadius: 0,
+                    tension: 0.2
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+}
+
+function destroyAnalyticsForecastChart() {
+    if (analyticsForecastChart) {
+        analyticsForecastChart.destroy();
+        analyticsForecastChart = null;
+    }
 }
 
 

@@ -8,7 +8,9 @@ from datetime import datetime, timedelta
 from sqlalchemy import func, and_
 
 from core.database import get_db
+from core import schemas
 from core.models import Stop, LoadData
+from services.forecast_service import forecast_service
 
 router = APIRouter()
 
@@ -181,4 +183,32 @@ async def get_people_history(
         'period_days': days,
         'history': history
     }
+
+
+@router.get("/forecast/{stop_id}", response_model=List[schemas.ForecastResponse])
+async def get_analytics_forecast(
+    stop_id: int,
+    hours: int = 24,
+    db: Session = Depends(get_db)
+):
+    """Получение прогноза пассажиропотока для аналитической панели"""
+    stop = db.query(Stop).filter(Stop.id == stop_id).first()
+    if not stop:
+        raise HTTPException(status_code=404, detail="Остановка не найдена")
+
+    forecast_result = forecast_service.forecast_load(db, None, stop_id, hours)
+
+    if forecast_result.get("error"):
+        raise HTTPException(status_code=400, detail=forecast_result["error"])
+
+    return [
+        schemas.ForecastResponse(
+            stop_id=stop_id,
+            forecast_time=item["timestamp"],
+            predicted_people_count=item["predicted_load"],
+            confidence_interval_lower=item.get("lower_bound"),
+            confidence_interval_upper=item.get("upper_bound")
+        )
+        for item in forecast_result["forecast"]
+    ]
 

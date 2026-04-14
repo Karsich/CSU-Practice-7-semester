@@ -58,7 +58,12 @@ class ForecastService:
             })
         
         df = pd.DataFrame(data)
-        df = df.groupby(pd.Grouper(key='ds', freq='H')).agg({
+        df['ds'] = pd.to_datetime(df['ds'], errors='coerce')
+        # Prophet не поддерживает timezone-aware даты в колонке ds.
+        if getattr(df['ds'].dt, 'tz', None) is not None:
+            df['ds'] = df['ds'].dt.tz_localize(None)
+
+        df = df.groupby(pd.Grouper(key='ds', freq='h')).agg({
             'y': 'mean'
         }).reset_index()
         
@@ -81,37 +86,43 @@ class ForecastService:
                 'error': 'Недостаточно исторических данных'
             }
         
-        # Настройка модели Prophet
-        model = Prophet(
-            yearly_seasonality=False,
-            weekly_seasonality=True,
-            daily_seasonality=True,
-            seasonality_mode='multiplicative'
-        )
-        
-        model.fit(df)
-        
-        # Создание будущих дат
-        future = model.make_future_dataframe(periods=periods, freq='H')
-        forecast = model.predict(future)
-        
-        # Извлечение только прогнозных значений
-        forecast_data = forecast.tail(periods)
-        
-        result = {
-            'forecast': [],
-            'error': None
-        }
-        
-        for _, row in forecast_data.iterrows():
-            result['forecast'].append({
-                'timestamp': row['ds'],
-                'predicted_load': max(0, row['yhat']),  # Количество людей (может быть больше 100)
-                'lower_bound': max(0, row['yhat_lower']),
-                'upper_bound': max(0, row['yhat_upper'])
-            })
-        
-        return result
+        try:
+            # Настройка модели Prophet
+            model = Prophet(
+                yearly_seasonality=False,
+                weekly_seasonality=True,
+                daily_seasonality=True,
+                seasonality_mode='multiplicative'
+            )
+
+            model.fit(df)
+
+            # Создание будущих дат
+            future = model.make_future_dataframe(periods=periods, freq='h')
+            forecast = model.predict(future)
+
+            # Извлечение только прогнозных значений
+            forecast_data = forecast.tail(periods)
+
+            result = {
+                'forecast': [],
+                'error': None
+            }
+
+            for _, row in forecast_data.iterrows():
+                result['forecast'].append({
+                    'timestamp': row['ds'],
+                    'predicted_load': max(0, row['yhat']),  # Количество людей (может быть больше 100)
+                    'lower_bound': max(0, row['yhat_lower']),
+                    'upper_bound': max(0, row['yhat_upper'])
+                })
+
+            return result
+        except Exception as exc:
+            return {
+                'forecast': [],
+                'error': f'Ошибка построения прогноза Prophet: {exc}'
+            }
     
     def forecast_load(self, db: Session, 
                      route_id: Optional[int] = None,  # Оставлено для обратной совместимости
