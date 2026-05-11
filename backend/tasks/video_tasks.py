@@ -39,9 +39,15 @@ def process_video_frame_task(frame_data: bytes, stop_id: int):
         
         # Получение координат зоны остановки
         stop_zone_coords = stop.stop_zone_coords if stop.stop_zone_coords else None
+        original_resolution = stop.original_resolution if stop.original_resolution else None
         
         # Обработка кадра
-        results = video_processor.process_frame(frame, stop_zone_coords)
+        results = video_processor.process_frame(
+            frame,
+            stop_zone_coords,
+            original_resolution=original_resolution,
+            context_key=f"stop:{stop_id}",
+        )
         
         # Сохранение данных о количестве людей и автобусах
         load_data = LoadData(
@@ -51,6 +57,8 @@ def process_video_frame_task(frame_data: bytes, stop_id: int):
             buses_detected=results.get('buses_count', 0),
             detection_data={
                 'people_detections': results.get('people_detections', []),
+                'people_tracks': results.get('people_tracks', []),
+                'people_waiting_tracks': results.get('people_waiting_tracks', []),
                 'stop_zone': results.get('stop_zone')
             }
         )

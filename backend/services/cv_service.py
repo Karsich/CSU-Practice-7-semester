@@ -12,6 +12,8 @@ import re
 
 from core.config import settings
 from collections import deque
+from services.waiting_tracker import WaitingTracker, ZoneRect
+from services.zone_utils import scale_zone_coords
 
 # Попытка импорта OCR библиотек
 try:
@@ -51,6 +53,13 @@ class CVService:
         
         # Для трекинга объектов между кадрами
         self.tracker = None
+
+        # Ожидание на остановке: per-context (например, stop_id или camera_id)
+        self._waiting_trackers: Dict[str, WaitingTracker] = {}
+
+        # ByteTrack состояние в ultralytics "persist" привязано к экземпляру YOLO.
+        # Чтобы не смешивать треки разных остановок/камер, держим YOLO per-context.
+        self._track_models: Dict[str, YOLO] = {}
         
         # Для сглаживания результатов детекции (стабильность)
         self.detection_history = {
@@ -329,8 +338,81 @@ class CVService:
         y2 = int(max(y_coords))
         
         return (x1, y1, x2, y2)
+
+    def _get_waiting_tracker(self, context_key: str) -> WaitingTracker:
+        wt = self._waiting_trackers.get(context_key)
+        if wt is None:
+            wt = WaitingTracker(wait_threshold_s=10.0, missing_ttl_s=2.0, prune_after_s=30.0)
+            self._waiting_trackers[context_key] = wt
+        return wt
+
+    def _get_track_model(self, context_key: str) -> YOLO:
+        m = self._track_models.get(context_key)
+        if m is None:
+            m = YOLO(settings.YOLO_MODEL_PATH)
+            self._track_models[context_key] = m
+        return m
+
+    def track_people_bytetrack(self, frame: np.ndarray, *, context_key: Optional[str] = None) -> List[Dict]:
+        """
+        Трекинг людей через ByteTrack (встроенный в ultralytics).
+
+        Returns:
+            Список {track_id, bbox, confidence}
+        """
+        h, w = frame.shape[:2]
+        if h > 1500 or w > 2500:
+            imgsz = 1920
+        elif h > 720:
+            imgsz = 1280
+        else:
+            imgsz = 640
+
+        model_for_track = self._get_track_model(context_key) if context_key else self.model
+
+        # persist=True держит состояние трекера внутри выбранного экземпляра YOLO.
+        results = model_for_track.track(
+            frame,
+            conf=0.05,
+            imgsz=imgsz,
+            verbose=False,
+            persist=True,
+            classes=[self.person_class],
+            tracker="bytetrack.yaml",
+        )
+
+        people: List[Dict] = []
+        if not results or len(results) == 0:
+            return people
+
+        r0 = results[0]
+        boxes = getattr(r0, "boxes", None)
+        if boxes is None:
+            return people
+
+        ids = getattr(boxes, "id", None)
+        if ids is None:
+            return people
+
+        xyxy = boxes.xyxy.cpu().numpy()
+        confs = boxes.conf.cpu().numpy() if getattr(boxes, "conf", None) is not None else None
+        ids_np = ids.cpu().numpy()
+
+        for i in range(len(xyxy)):
+            x1, y1, x2, y2 = xyxy[i].tolist()
+            tid = int(ids_np[i])
+            conf = float(confs[i]) if confs is not None else 0.0
+            people.append({"track_id": tid, "bbox": [float(x1), float(y1), float(x2), float(y2)], "confidence": conf})
+        return people
     
-    def process_video_frame(self, frame: np.ndarray, stop_zone_coords: Optional[List[List[float]]] = None) -> Dict:
+    def process_video_frame(
+        self,
+        frame: np.ndarray,
+        stop_zone_coords: Optional[List[List[float]]] = None,
+        *,
+        original_resolution: Optional[Dict[str, int]] = None,
+        context_key: Optional[str] = None,
+    ) -> Dict:
         """
         Обработка кадра видеопотока
         
@@ -342,12 +424,24 @@ class CVService:
             Результаты обработки
         """
         detections = self.detect_objects(frame)
-        
-        # Определение зоны остановки
-        stop_zone = self.detect_stop_zone(frame, stop_zone_coords)
-        
-        # Подсчет людей в зоне остановки
-        people_in_stop = self.count_people_in_zone(frame, stop_zone) if stop_zone else len(detections['people'])
+
+        scaled_coords = scale_zone_coords(frame, stop_zone_coords, original_resolution)
+
+        # Определение зоны остановки (прямоугольник)
+        stop_zone = self.detect_stop_zone(frame, scaled_coords)
+
+        # Трекинг людей + определение статуса ожидания
+        now = datetime.now()
+        tracked_people = self.track_people_bytetrack(frame, context_key=context_key)
+        waiting_people = []
+        if context_key and stop_zone:
+            wt = self._get_waiting_tracker(context_key)
+            observations = [(p["track_id"], tuple(p["bbox"])) for p in tracked_people if p.get("track_id") is not None]
+            waiting_people = wt.update(now=now, observations=observations, stop_zone=stop_zone)  # type: ignore[arg-type]
+
+        # Подсчет "ожидающих" (зелёных)
+        people_waiting_count = sum(1 for p in waiting_people if p.get("status") == "waiting")
+        people_in_zone_count = sum(1 for p in waiting_people if p.get("last_in_zone") is True)
         
         # Обработка автобусов - распознавание номеров
         buses_info = []
@@ -360,9 +454,14 @@ class CVService:
             })
         
         return {
-            'timestamp': datetime.now(),
-            'people_count': people_in_stop,
-            'people_detections': detections['people'],
+            'timestamp': now,
+            # people_count теперь трактуем как "ожидающие автобус" (часть статистики)
+            'people_count': people_waiting_count if context_key else (self.count_people_in_zone(frame, stop_zone) if stop_zone else len(detections['people'])),
+            'people_in_zone_count': people_in_zone_count if context_key else None,
+            'people_waiting_count': people_waiting_count if context_key else None,
+            'people_detections': detections['people'],  # raw detections (без треков)
+            'people_tracks': tracked_people,
+            'people_waiting_tracks': waiting_people,
             'buses': buses_info,
             'buses_count': len(buses_info),
             'stop_zone': stop_zone,
@@ -382,12 +481,46 @@ class CVService:
         """
         result_frame = frame.copy()
         
-        # Отрисовка людей (зеленый)
-        for person in detections.get('people', []):
-            x1, y1, x2, y2 = map(int, person['bbox'])
-            cv2.rectangle(result_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(result_frame, f"Person {person['confidence']:.2f}", 
-                       (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        # Отрисовка людей: если есть статусы ожидания — красный/желтый/зелёный, иначе как раньше.
+        waiting_by_id = {}
+        for wp in detections.get("people_waiting_tracks", []) or []:
+            tid = wp.get("track_id")
+            if tid is not None:
+                waiting_by_id[int(tid)] = wp
+
+        # Используем tracked people, если они есть; иначе raw people
+        if detections.get("people_tracks"):
+            for person in detections.get("people_tracks", []):
+                x1, y1, x2, y2 = map(int, person["bbox"])
+                tid = int(person.get("track_id", -1))
+                wp = waiting_by_id.get(tid)
+                status = wp.get("status") if wp else None
+
+                if status == "waiting":
+                    color = (0, 255, 0)  # green
+                    label = f"ID {tid} WAIT"
+                elif status == "in_zone_not_waiting":
+                    color = (0, 255, 255)  # yellow
+                    label = f"ID {tid} IN"
+                else:
+                    color = (0, 0, 255)  # red
+                    label = f"ID {tid} OUT"
+
+                cv2.rectangle(result_frame, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(result_frame, label, (x1, max(0, y1 - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        else:
+            for person in detections.get("people", []):
+                x1, y1, x2, y2 = map(int, person["bbox"])
+                cv2.rectangle(result_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(
+                    result_frame,
+                    f"Person {person['confidence']:.2f}",
+                    (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (0, 255, 0),
+                    2,
+                )
         
         # Отрисовка автобусов (синий)
         for bus in detections.get('buses', []):
@@ -399,17 +532,21 @@ class CVService:
             cv2.putText(result_frame, label, (x1, y1 - 10), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
         
-        # Отрисовка зоны остановки (если задана)
+        # Отрисовка зоны остановки (бирюзовый)
         if detections.get('stop_zone'):
             x1, y1, x2, y2 = detections['stop_zone']
-            cv2.rectangle(result_frame, (x1, y1), (x2, y2), (255, 255, 0), 2)
-            cv2.putText(result_frame, "Stop Zone", (x1, y1 - 10),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+            zone_color = (255, 255, 0)  # BGR: cyan/бирюзовый
+            cv2.rectangle(result_frame, (x1, y1), (x2, y2), zone_color, 2)
+            cv2.putText(result_frame, "Stop Zone", (x1, max(0, y1 - 10)),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, zone_color, 2)
         
         # Добавляем статистику в левый верхний угол
         stats_y = 30
-        cv2.putText(result_frame, f"People: {len(detections.get('people', []))}", 
-                   (10, stats_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        people_waiting = detections.get("people_waiting_count")
+        if people_waiting is not None:
+            cv2.putText(result_frame, f"Waiting: {people_waiting}", (10, stats_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        else:
+            cv2.putText(result_frame, f"People: {len(detections.get('people', []))}", (10, stats_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         cv2.putText(result_frame, f"Buses: {len(detections.get('buses', []))}", 
                    (10, stats_y + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
         

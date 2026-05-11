@@ -67,7 +67,14 @@ class VideoProcessor:
             cap.release()
             self.is_processing = False
     
-    def process_frame(self, frame: np.ndarray, stop_zone_coords: Optional[List[List[float]]] = None) -> Dict:
+    def process_frame(
+        self,
+        frame: np.ndarray,
+        stop_zone_coords: Optional[List[List[float]]] = None,
+        *,
+        original_resolution: Optional[Dict[str, int]] = None,
+        context_key: Optional[str] = None,
+    ) -> Dict:
         """
         Синхронная обработка одного кадра
         
@@ -78,7 +85,12 @@ class VideoProcessor:
         Returns:
             Результаты обработки
         """
-        return cv_service.process_video_frame(frame, stop_zone_coords)
+        return cv_service.process_video_frame(
+            frame,
+            stop_zone_coords,
+            original_resolution=original_resolution,
+            context_key=context_key,
+        )
     
     def stop_processing(self):
         """Остановка обработки видеопотока"""

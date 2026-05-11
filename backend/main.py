@@ -1,6 +1,9 @@
 """
 API Gateway - единая точка входа для всех сервисов системы
 """
+import os
+import sys
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -11,7 +14,10 @@ from core.config import settings
 from core.database import engine, Base
 
 # Создание таблиц базы данных
-Base.metadata.create_all(bind=engine)
+_RUNNING_UNDER_PYTEST = "pytest" in sys.modules or bool(os.getenv("PYTEST_CURRENT_TEST"))
+_SKIP_DB_INIT = os.getenv("SKIP_DB_INIT", "").lower() in ("1", "true", "yes", "y")
+if not _RUNNING_UNDER_PYTEST and not _SKIP_DB_INIT:
+    Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="Transport Load Monitoring System",
